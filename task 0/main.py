@@ -4,7 +4,6 @@ The task consists of training a predictor R^10 -> R on some provided training da
 The solution is known to be the mean of the input data.
 """
 
-import numpy as np
 import pandas as pd
 from sklearn.metrics import mean_squared_error
 from sklearn import linear_model
@@ -31,6 +30,6 @@ test = pd.read_csv("./task 0/Input/test.csv")
 # submission template, to be overwritten with my solution
 sample = pd.read_csv("./task 0/Input/sample.csv")
 sample["y"] = lin_reg.predict(test.iloc[:,1:])
-sample.to_csv("./task 0/result.csv")
+sample.to_csv("./task 0/result.csv", index=False)
 
 print("hoi")
