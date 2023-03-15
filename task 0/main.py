@@ -92,7 +92,6 @@ def trafo_scale_features(x, feature_trafo):
 if __name__ == "__main__":
 
     # IMPORT AND PREPARE TRAINING DATA
-
     train = pd.read_csv("./task 0/Input/train.csv")
     # drop labels and IDs
     x_train = train.iloc[:, 2:]
@@ -100,7 +99,6 @@ if __name__ == "__main__":
     y_train = train.iloc[:, 1]
 
     # INITIALIZE ALL CANDIDATE MODELS
-
     # list of model objects from which the best model will be chosen
     candidate_models = []
 
