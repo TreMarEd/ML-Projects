@@ -20,7 +20,7 @@ RMSEs = []
 for l in [0.1, 1., 10, 100, 200]:
     # some solvers are stochastic and hence not necessarily reproducible on another machine,
     # hence, the cholesky solver is used as its solution is determinsitic
-    ridge_model = linear_model.Ridge(l, solver="cholesky")
+    ridge_model = linear_model.Ridge(alpha=l, solver="cholesky")
     cv_scores = cross_val_score(ridge_model, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error")
     # by def. the higher the cv_score the better. Hence, negative RMSE is used and to get RMSE one needs to multiply by -1
     RMSE = -np.mean(cv_scores)
