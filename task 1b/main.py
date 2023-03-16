@@ -24,6 +24,7 @@ def transform_data(X):
     ----------
     X_transformed: array of floats: dim = (700,21), transformed input with 21 features
     """
+    
     X_transformed = np.hstack((X, np.power(X, 2), np.exp(X), np.cos(X), np.ones([700,1])))
     assert X_transformed.shape == (700, 21)
     return X_transformed
@@ -45,9 +46,20 @@ def fit(X, y):
     """
 
     X_transformed = transform_data(X)
-    # use ridge regularization to counteract the ill conditioning of the problem
-    reg = linear_model.Ridge(alpha=0.001, fit_intercept=False).fit(X_transformed, y)
-    w = reg.coef_
+
+    # use ridge regularization to counteract the ill conditioning of the problem, namely the matrix X^T*X
+    alpha = 0.01
+
+    # print the condition numbers of the regularized and unregularized problem for information
+    non_regularized = np.matmul(np.transpose(X_transformed), X_transformed)
+    print("\nconditon number of X^T * X:\n", np.linalg.cond(non_regularized))
+
+    regularized = np.matmul(np.transpose(X_transformed), X_transformed) + alpha * np.eye(21)
+    print("\nconditon number of X^T * X + lambda * Id for lambda=", str(alpha), ":\n", np.linalg.cond(regularized))
+
+    # intercepts deactivated as transformed feature matrix contains features =1 in last column
+    model = linear_model.Ridge(alpha=alpha, fit_intercept=False).fit(X_transformed, y)
+    w = model.coef_
     assert w.shape == (21,)
     return w
 
