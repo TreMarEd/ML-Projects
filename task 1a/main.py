@@ -9,7 +9,7 @@ import numpy as np
 from sklearn import linear_model
 from sklearn.model_selection import cross_val_score
 
-train = pd.read_csv("./task 1a/input/train.csv")
+train = pd.read_csv("./task 1a/train.csv")
 # extract features
 x_train = train.iloc[:, 1:]
 # extract labels
@@ -18,8 +18,8 @@ y_train = train.iloc[:, 0]
 RMSEs = []
 
 for l in [0.1, 1., 10, 100, 200]:
-    # some solvers are stochastic and hence not necessarily reproducible on another machine,
-    # hence, the cholesky solver is used as its solution is determinsitic
+    # "Ridge" by default chooses a solver by itself. Some solvers are stochastic and hence not necessarily reproducible on 
+    # another machine. Hence, the cholesky solver is used as its solution is determinsitic
     ridge_model = linear_model.Ridge(alpha=l, solver="cholesky")
     cv_scores = cross_val_score(ridge_model, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error")
     # by def. the higher the cv_score the better. Hence, negative RMSE is used and to get RMSE one needs to multiply by -1
@@ -27,6 +27,6 @@ for l in [0.1, 1., 10, 100, 200]:
     RMSEs.append(RMSE)
 
 # submission template, to be overwritten with solution for hand-in
-sample = pd.read_csv("./task 1a/input/sample.csv", header=None)
+sample = pd.read_csv("./task 1a/sample.csv", header=None)
 sample.iloc[:, 0] = RMSEs
 sample.to_csv("./task 1a/result.csv", header=False, index=False)
