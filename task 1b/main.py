@@ -24,20 +24,7 @@ def transform_data(X):
     ----------
     X_transformed: array of floats: dim = (700,21), transformed input with 21 features
     """
-
-    X_transformed = np.zeros((700, 21))
-
-    trafos = [lambda x: x, lambda x: x**2, lambda x: np.exp(x), lambda x: np.cos(x)]
-
-    for i, trafo in zip([0, 5, 10, 15], trafos):
-        X_transformed[:,i] = trafo(X[:,0])
-        X_transformed[:,i+1] = trafo(X[:,1])
-        X_transformed[:,i+2] = trafo(X[:,2])
-        X_transformed[:,i+3] = trafo(X[:,3])
-        X_transformed[:,i+4] = trafo(X[:,4])
-    
-    X_transformed[:,20] = np.ones(700)
-
+    X_transformed = np.hstack((X, np.power(X, 2), np.exp(X), np.cos(X), np.ones([700,1])))
     assert X_transformed.shape == (700, 21)
     return X_transformed
 
@@ -57,13 +44,10 @@ def fit(X, y):
     w: array of floats: dim = (21,), optimal parameters of linear regression
     """
 
-    w = np.zeros((21,))
     X_transformed = transform_data(X)
-
-    # no intercept is fittet as the last feature is 1
-    reg = linear_model.LinearRegression(fit_intercept=False).fit(X_transformed, y)
+    # use ridge regularization to counteract the ill conditioning of the problem
+    reg = linear_model.Ridge(alpha=0.001, fit_intercept=False).fit(X_transformed, y)
     w = reg.coef_
-    
     assert w.shape == (21,)
     return w
 
