@@ -42,26 +42,29 @@ def data_loading(random_state=0, max_iter=10):
 
     train_df = train_df.replace(to_replace=seasons, value=temperatures)
     #original, non-imputed test data matrix 
-    X_test_orig = test_df.replace(to_replace=seasons, value=temperatures)
+    test_df = test_df.replace(to_replace=seasons, value=temperatures)
 
     # visual inspection of the data shows that no column has significantly different nullity compared to the others except
     # for season, which is always present. Hence, no column should be dropped completely. Visual inspection also shows that 
     # there are almost no records with complete information, such that discarding missing rows is not feasible
 
     # drop records with missing labels for regression training
-    train_reg = train_df.dropna(subset=['price_CHF'])
-    y_train = train_reg['price_CHF']
-    # original, non-imputed training data matrix
-    X_train_orig = train_reg.drop(['price_CHF'], axis=1)
+    #train_reg = train_df.dropna(subset=['price_CHF'])
+    #y_train = train_reg['price_CHF']
 
-    # Use entire feature data set for multivariate imputation training
-    train_imp = train_df.drop(['price_CHF'], axis=1)
-    imp = IterativeImputer(max_iter=max_iter, random_state=random_state)
-    imp.fit(train_imp)
+    #imputate training data
+    imp_labels = IterativeImputer(max_iter=max_iter, random_state=random_state)
+    imp_labels.fit(train_df)
+    train_df = imp_labels.transform(train_df)
+    X_train = np.delete(train_df, 2, axis=1)
+    y_train = train_df[:,2]
 
-    # transform regression features
-    X_train = imp.transform(X_train_orig)
-    X_test = imp.transform(X_test_orig)
+
+    # imputate test data
+    imp_labels = IterativeImputer(max_iter=max_iter, random_state=random_state)
+    imp_labels.fit(test_df)
+    X_test = imp_labels.transform(test_df)
+
 
     assert (X_train.shape[1] == X_test.shape[1]) and (X_train.shape[0] == y_train.shape[0]) and (X_test.shape[0] == 100), "Invalid data shape"
     return X_train, y_train, X_test
@@ -94,10 +97,10 @@ if __name__ == "__main__":
     m = 1
 
     # rational quadratic performs best
-    kernels = [DotProduct(sigma_0=0.1), DotProduct(sigma_0=1), DotProduct(sigma_0=10), 
-               RBF(length_scale=0.01), RBF(length_scale=1), RBF(length_scale=10), 
-               Matern(length_scale=0.01), Matern(length_scale=0.1), Matern(length_scale=1), 
-               RationalQuadratic(length_scale=0.1, alpha=10), RationalQuadratic(length_scale=10, alpha =0.1), RationalQuadratic(length_scale=1, alpha=1)]
+    kernels = [DotProduct(sigma_0=0.1), DotProduct(sigma_0=1)]
+               #RBF(length_scale=0.01), RBF(length_scale=1), RBF(length_scale=10), 
+               #Matern(length_scale=0.01), Matern(length_scale=0.1), Matern(length_scale=1), 
+               #RationalQuadratic(length_scale=0.1, alpha=10), RationalQuadratic(length_scale=10, alpha =0.1), RationalQuadratic(length_scale=1, alpha=1)]
     
     cv_scores = pd.DataFrame(index=[i for i in range(m)], columns=[str(k) for k in kernels])
 
@@ -113,11 +116,16 @@ if __name__ == "__main__":
     print(np.array(cv_scores))
 
     # The function retrieving optimal LR parameters
-    y_pred = modeling_and_prediction(X_train, y_train, X_test)
+    #y_pred = modeling_and_prediction(X_train, y_train, X_test)
+    X_train, y_train, X_test = data_loading(random_state=random_state)
 
+    gpr = GaussianProcessRegressor(kernel=DotProduct(sigma_0=0.1), alpha = 5e-8) 
+
+    gpr.fit(X_train, y_train)
+    y_pred = gpr.predict(X_test)
     # Save results in the required format
     dt = pd.DataFrame(y_pred) 
     dt.columns = ['price_CHF']
-    dt.to_csv('results.csv', index=False)
+    dt.to_csv('./task 2/results.csv', index=False)
     print("\nResults file successfully generated!")
 
