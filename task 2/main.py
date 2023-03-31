@@ -1,10 +1,16 @@
-# This serves as a template which will guide you through the implementation of this task.  It is advised
-# to first read the whole template and get a sense of the overall structure of the code before trying to fill in any of the TODO gaps
-# First, we import necessary libraries:
+'''
+TODO: describe the task
+'''
+
 import numpy as np
 import pandas as pd
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
+from sklearn.metrics import r2_score
+from sklearn.model_selection import cross_val_score
+
 
 
 def data_loading(random_state=0, max_iter=10):
@@ -48,8 +54,7 @@ def data_loading(random_state=0, max_iter=10):
     # original, non-imputed training data matrix
     X_train_orig = train_reg.drop(['price_CHF'], axis=1)
 
-
-    # Use entire feature data set for multiple imputation training
+    # Use entire feature data set for multivariate imputation training
     train_imp = train_df.drop(['price_CHF'], axis=1)
     imp = IterativeImputer(max_iter=max_iter, random_state=random_state)
     imp.fit(train_imp)
@@ -85,8 +90,27 @@ def modeling_and_prediction(X_train, y_train, X_test):
 
 if __name__ == "__main__":
 
-    # Data loading
-    X_train, y_train, X_test = data_loading()
+    # use multiple imputation: m imputations with different RNG seeds
+    m = 1
+
+    # rational quadratic performs best
+    kernels = [DotProduct(sigma_0=0.1), DotProduct(sigma_0=1), DotProduct(sigma_0=10), 
+               RBF(length_scale=0.01), RBF(length_scale=1), RBF(length_scale=10), 
+               Matern(length_scale=0.01), Matern(length_scale=0.1), Matern(length_scale=1), 
+               RationalQuadratic(length_scale=0.1, alpha=10), RationalQuadratic(length_scale=10, alpha =0.1), RationalQuadratic(length_scale=1, alpha=1)]
+    
+    cv_scores = pd.DataFrame(index=[i for i in range(m)], columns=[str(k) for k in kernels])
+
+    for random_state in range(m):
+        for kernel in kernels:
+            print("\n using kernel ", str(kernel), "\n")
+            X_train, y_train, X_test = data_loading(random_state=random_state)
+
+            gpr = GaussianProcessRegressor(kernel=kernel, alpha = 5e-8)
+            #gpr.fit(X_train, y_train)
+            cv_scores.loc[random_state, str(kernel)] = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
+
+    print(np.array(cv_scores))
 
     # The function retrieving optimal LR parameters
     y_pred = modeling_and_prediction(X_train, y_train, X_test)
