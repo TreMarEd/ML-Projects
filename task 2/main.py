@@ -9,7 +9,7 @@ import pandas as pd
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic, Exponentiation
+from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
 
@@ -38,11 +38,10 @@ def data_loading():
     # Load test data
     test_0 = pd.read_csv("./task 2/test.csv")
 
-    # replace categorical variable season with a numeric value. The seasons have a natural order relation according to their average
-    # temperatures in Europe. Replace each season with its average temperature in Kelvin/100 according to the following page:
-    # https://weatherspark.com/y/46917/Average-Weather-in-Eu-France-Year-Round
-    seasons = ['spring', 'summer', 'autumn', 'winter']
-    temperatures = [282.0, 289.8, 285.4, 278.2]
+    # replace categorical variable season with a numeric value. The seasons have a natural order relation according to their
+    # temperatures, which can be encoded numerically
+    seasons = ['winter', 'spring', 'autumn', 'summer']
+    temperatures = [1, 2, 3, 4] 
 
     train = train_0.replace(to_replace=seasons, value=temperatures)
     # non-imputed, i.e. original, test data matrix
@@ -71,22 +70,17 @@ if __name__ == "__main__":
 
     X_train, y_train, X_test = data_loading()
 
-    # TODO: try out composite kernels
-    kernels = [DotProduct(sigma_0=0.1),
+    kernels = [DotProduct(sigma_0=1),
                RBF(length_scale=0.1, length_scale_bounds=(1e-06, 100000.0)),
                Matern(length_scale=0.3, nu=0.3),
-               RationalQuadratic(length_scale=1, alpha=1),
-               Exponentiation(RationalQuadratic(length_scale=0.1), exponent=2),
-               Exponentiation(Matern(length_scale=1, nu=1), exponent=2),
-               Exponentiation(RationalQuadratic(length_scale=0.1), exponent=3),
-               Exponentiation(Matern(length_scale=1, nu=1), exponent=3)]
+               RationalQuadratic(length_scale=1, alpha=1)]
     
-    # define open parameters of the Gaussian Process
-    alpha = 5e-8
-    random_state = 5
-    n_restarts_optimizer = 5
+    # define free parameters of the Gaussian Process
+    alpha = 1e-6
+    seed = 5
+    restarts = 5
 
-    # initialize dataframe that holds cv score for each tried out kernel
+    # initialize dataframe that holds cv score for each candidate kernel
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(k) for k in kernels])
 
     # initialize best score and best kernel
@@ -95,8 +89,7 @@ if __name__ == "__main__":
 
     for kernel in kernels:
         print("\nUsing kernel ", str(kernel), "\n")
-        gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=n_restarts_optimizer, random_state=random_state)
-
+        gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed)
         score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
         cv_scores.loc[str(kernel), "CV_score"] = score
 
@@ -108,7 +101,7 @@ if __name__ == "__main__":
     print(cv_scores)
     print("\nBest kernel is ", str(best_kernel), " and it will be used for training and generating the results.")
 
-    gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=n_restarts_optimizer, random_state=random_state)
+    gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed)
     gpr.fit(X_train, y_train)
     y_pred = gpr.predict(X_test)
 
