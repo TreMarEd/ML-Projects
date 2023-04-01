@@ -28,23 +28,25 @@ if __name__ == "__main__":
 
     # encode categorical variable "season" with integer values according to their natural order relation provided by temperature
     seasons = ['winter', 'spring', 'autumn', 'summer']
-    temperatures = [1, 2, 3, 4] 
+    temperatures = [1, 2, 3, 4]
 
     train = train.replace(to_replace=seasons, value=temperatures)
     test = test.replace(to_replace=seasons, value=temperatures)
 
     best_kernel = Matern(length_scale=0.3, nu=0.3)
-    alpha = 1e-5
-    seed = 3
+    alpha = 1e-8
+    seed = 4
     restarts = 2
-    
+
+    # TODO: eigener optimizer für gaussian process schreiben
+
     imp_train = IterativeImputer(estimator=GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=10)
     imp_test = IterativeImputer(estimator=GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=10)
     
     print("\ntraining training-data imputer\n") 
     train_imputed = imp_train.fit_transform(train)
     print("\ntraining test-data imputer\n")
-    test_imputed = imp_train.fit_transform(test)
+    test_imputed = imp_test.fit_transform(test)
    
     X_train = np.delete(train_imputed,2, axis=1)
     y_train = train_imputed[:,2]
