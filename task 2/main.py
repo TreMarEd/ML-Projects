@@ -13,8 +13,6 @@ from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQu
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
 
-# define free parameters of the Gaussian Process
-
 
 if __name__ == "__main__":
 
