@@ -13,10 +13,6 @@ from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQu
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
 
-pd.set_option('display.max_rows', None)
-pd.set_option('display.max_columns', None)
-
-# TODO: general cosmetics (do this at the end)
 
 def data_loading():
     """
@@ -38,8 +34,7 @@ def data_loading():
     # Load test data
     test_0 = pd.read_csv("./task 2/test.csv")
 
-    # replace categorical variable season with a numeric value. The seasons have a natural order relation according to their
-    # temperatures, which can be encoded numerically
+    # encode categorical variable "season" with integer values according to their natural order relation provided by temperature
     seasons = ['winter', 'spring', 'autumn', 'summer']
     temperatures = [1, 2, 3, 4] 
 
@@ -58,7 +53,7 @@ def data_loading():
     imp = IterativeImputer(max_iter=20)
     imp.fit(train_imp)
 
-    # transform regression features
+    # transform features
     X_train = imp.transform(X_train_orig)
     X_test = imp.transform(X_test_orig)
 
@@ -101,6 +96,7 @@ if __name__ == "__main__":
     print(cv_scores)
     print("\nBest kernel is ", str(best_kernel), " and it will be used for training and generating the results.")
 
+    # fully train the model with the best kernel
     gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed)
     gpr.fit(X_train, y_train)
     y_pred = gpr.predict(X_test)
