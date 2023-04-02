@@ -15,7 +15,7 @@ from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 
-def impute_and_cv(train, test, kernel, alpha=1e-8, seed=4, restarts=1, max_iter=5):
+def impute_and_cv(train, test, kernel, alpha=1e-8, seed=6, restarts=0, max_iter=2):
     """
     TODO: fkt beschreiben
     """
@@ -29,7 +29,7 @@ def impute_and_cv(train, test, kernel, alpha=1e-8, seed=4, restarts=1, max_iter=
     y_train = train_imputed[:,2]
 
     gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed)
-    print("\nCROSS-VALIDATING PREDICOTR\n")
+    print("\nCROSS-VALIDATING PREDICTOR\n")
     score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
 
     print("\nTRAINING PREDICTOR\n")
@@ -37,7 +37,9 @@ def impute_and_cv(train, test, kernel, alpha=1e-8, seed=4, restarts=1, max_iter=
 
     print("\nTRAINING TEST-DATA IMPUTER\n")
     imp_test = IterativeImputer(estimator=GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    test_imputed = imp_test.fit_transform(test)
+    tmp = pd.concat([train.drop("price_CHF", axis=1), test], ignore_index=True)
+    imp_test.fit(tmp)
+    test_imputed = imp_test.transform(test)
 
     return gpr, score, test_imputed
 
@@ -52,22 +54,12 @@ if __name__ == "__main__":
     # encode categorical variable "season" with integer values according to their natural order relation provided by temperature
     seasons = ['winter', 'spring', 'autumn', 'summer']
     temperatures = [1, 2, 3, 4]
-    train_unscaled = train.replace(to_replace=seasons, value=temperatures)
-    test_unscaled = test.replace(to_replace=seasons, value=temperatures)
+    train = train.replace(to_replace=seasons, value=temperatures)
+    test = test.replace(to_replace=seasons, value=temperatures)
 
-    #TODO: scale the data, scaling needs to be inverted for final predictions
-    scaler = StandardScaler()
-    train = scaler.fit_transform(train_unscaled)
-
-    test_unscaled["price_CHF"] = np.zeros(test_unscaled.shape[0])
-    cols = train_unscaled.columns.to_list()
-    test_unscaled = test_unscaled[cols]
-    test = scaler.transform(test_unscaled)
-    test = np.delete(test, 2, axis=1)
-
-    #kernels = [Matern(length_scale=0.3, nu=0.3), 
-               #RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-07, 100000.0))]
-    kernels=[]
+    kernels = [Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0)),
+               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))]
+    kernels =[]
 
     # initialize cv_score for each kernel and best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
@@ -86,9 +78,9 @@ if __name__ == "__main__":
     print(cv_scores)
     print("\nTHE BEST KERNEL IS ", str(best_kernel), ".")
     print("\nIT WILL BE USED TO IMPUTE TRAINING/TEST DATA AGAIN WITH MORE ITERATIONS/OPTIMIZER RESTARTS AND TO GENERATE THE FINAL RESULT.\n")
-    best_kernel = RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-07, 100000.0))
-    best_kernel = Matern(length_scale=0.3, nu=0.3)
-    gpr, score, test_imputed = impute_and_cv(train, test, best_kernel, restarts=4, max_iter=20)
+    #best_kernel = RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))
+    best_kernel = Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0))
+    gpr, score, test_imputed = impute_and_cv(train, test, best_kernel, restarts=3, max_iter=15)
     print("\nR2-CV-SCORE OF FINAL PREDICTOR: ", str(score), "\n")
 
     # generate final predictions and save to csv
