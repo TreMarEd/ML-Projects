@@ -1,50 +1,38 @@
-'''
+"""
 This task is the second project of the 2023 intro to ML course at ETH. It consists of using Gaussian Processes to predict Swiss 
 (log-)energy prices based on the energy prices of other European countries and the season. The training data has high nullity
 such that an imputation strategy needs to be implemented during preprocessing.
-'''
-# TODO: cosmetics
+"""
 
 import numpy as np
 import pandas as pd
 from sklearn.experimental import enable_iterative_imputer
 from sklearn.impute import IterativeImputer
 from sklearn.gaussian_process import GaussianProcessRegressor
-from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic, Exponentiation
+from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
-from sklearn.preprocessing import StandardScaler
 
-def impute_and_cv(train, test, kernel, alpha=1e-8, seed=6, restarts=0, max_iter=2):
+
+def data_preprocessing(alpha=1e-8, seed=5, restarts=3, max_iter=15, kernel=Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0))):
     """
-    TODO: fkt beschreiben
+    This function loads the training and test data, preprocesses it, removes the NaN values and interpolates the missing 
+    data using the iterative imputer provided by sklearn using a Gaussian Process Regressor.
+
+    Parameters
+    ----------
+    alpha: float, Value added to the diagonal of the kernel matrix during fitting of the Gaussian Process regressor
+    seed: integer, determines random number generation used during Gaussian Process regressor fitting
+    restarts: integer, number of restarts of the Gaussian Process optimizer for finding  kernel parameters which maximize log-marginal likelihood. 
+    max_iter: integer, maximum number of integers used by the iterative imputer
+    kernel: sklearn Kernel object, kernel of the Gaussian Process to be used for imputation
+
+    Returns
+    ----------
+    X_train: matrix of floats, training input with features
+    y_train: array of floats, training output with labels
+    X_test: matrix of floats: dim = (100, ?), test input with features
     """
-    # TODO: eigener optimizer für gaussian process schreiben
-    print("\nIMPUTATION USING KERNEL ", str(kernel), "\n")
-    imp_train = IterativeImputer(estimator=GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    
-    print("\nTRAINING TRAINING-DATA IMPUTER\n") 
-    train_imputed = imp_train.fit_transform(train)
-    X_train = np.delete(train_imputed,2, axis=1)
-    y_train = train_imputed[:,2]
-
-    gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed)
-    print("\nCROSS-VALIDATING PREDICTOR\n")
-    score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
-
-    print("\nTRAINING PREDICTOR\n")
-    gpr.fit(X_train, y_train)
-
-    print("\nTRAINING TEST-DATA IMPUTER\n")
-    imp_test = IterativeImputer(estimator=GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    tmp = pd.concat([train.drop("price_CHF", axis=1), test], ignore_index=True)
-    imp_test.fit(tmp)
-    test_imputed = imp_test.transform(test)
-
-    return gpr, score, test_imputed
-
-
-if __name__ == "__main__":
 
     # Load training data
     train = pd.read_csv("./task 2/train.csv")
@@ -57,34 +45,76 @@ if __name__ == "__main__":
     train = train.replace(to_replace=seasons, value=temperatures)
     test = test.replace(to_replace=seasons, value=temperatures)
 
-    kernels = [Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0)),
-               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))]
-    kernels =[]
+    print("\nTRAINING TRAINING-DATA IMPUTER\n")
+    imp_train = IterativeImputer(estimator=GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    train_imputed = imp_train.fit_transform(train)
+    X_train = np.delete(train_imputed, 2, axis=1)
+    y_train = train_imputed[:, 2]
 
-    # initialize cv_score for each kernel and best kernel and its score
+    print("\nTRAINING TEST-DATA IMPUTER\n")
+    imp_test = IterativeImputer(estimator=GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    # use both training data feautes and test data features to train the imputer
+    all_features = pd.concat([train.drop("price_CHF", axis=1), test], ignore_index=True)
+    imp_test.fit(all_features)
+    X_test = imp_test.transform(test)
+
+    return X_train, y_train, X_test
+
+
+def modeling_and_prediction(X_train, y_train, X_test, kernels):
+    """
+    This function defines the model, fits training data and then does the prediction with the test data 
+
+    Parameters
+    ----------
+    X_train: matrix of floats, training input with 10 features
+    y_train: array of floats, training output
+    X_test: matrix of floats: dim = (100, ?), test input with 10 features
+    kernels: sklearn Kernel object, kernels of the Gaussian Process Regressor to be compared through cross-validation
+
+    Returns
+    ----------
+    y_test: array of floats: dim = (100,), predictions on test set
+    """
+
+    # initialize cv_score for each kernel, best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
     best_kernel = None
     best_score = 0
 
     for kernel in kernels:
-        score = impute_and_cv(train, test, kernel)[1]
-        cv_scores.loc[str(kernel),"CV_score"] = score
+        gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+        score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
+        cv_scores.loc[str(kernel), "CV_score"] = score
 
         if score > best_score:
             best_kernel = kernel
             best_score = score
-    
+
     print("\nTHE KERNELS ACHIEVE THE FOLLOWING R2-CV-SCORES:\n")
     print(cv_scores)
-    print("\nTHE BEST KERNEL IS ", str(best_kernel), ".")
-    print("\nIT WILL BE USED TO IMPUTE TRAINING/TEST DATA AGAIN WITH MORE ITERATIONS/OPTIMIZER RESTARTS AND TO GENERATE THE FINAL RESULT.\n")
-    #best_kernel = RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))
-    best_kernel = Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0))
-    gpr, score, test_imputed = impute_and_cv(train, test, best_kernel, restarts=3, max_iter=15)
-    print("\nR2-CV-SCORE OF FINAL PREDICTOR: ", str(score), "\n")
+    print("\nTHE BEST KERNEL IS ", str(best_kernel), ". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
 
-    # generate final predictions and save to csv
-    y_pred = gpr.predict(test_imputed)
+    gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+    gpr.fit(X_train, y_train)
+    y_pred = gpr.predict(X_test)
+
+    return y_pred
+
+
+if __name__ == "__main__":
+
+    X_train, y_train, X_test = data_preprocessing()
+
+    kernels = [DotProduct(),
+               RBF(),
+               Matern(length_scale=0.3, nu=0.3,
+                      length_scale_bounds=(1e-08, 100000.0)),
+               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))]
+
+    y_pred = modeling_and_prediction(X_train, y_train, X_test, kernels)
+
+    # write final result to csv
     dt = pd.DataFrame(y_pred)
     dt.columns = ['price_CHF']
     dt.to_csv('./task 2/results.csv', index=False)
