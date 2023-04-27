@@ -10,7 +10,7 @@ from torchvision import transforms
 import torchvision.datasets as datasets
 import torch.nn as nn
 import torch.nn.functional as F
-
+from torchvision.models import resnet50, ResNet50_Weights
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -19,29 +19,39 @@ def generate_embeddings():
     Transform, resize and normalize the images and then use a pretrained model to extract 
     the embeddings.
     """
-    # TODO: define a transform to pre-process the images
-    train_transforms = transforms.Compose([transforms.ToTensor()])
 
-    train_dataset = datasets.ImageFolder(root="dataset/", transform=train_transforms)
+    train_transforms = transforms.Compose([transforms.ToTensor(), ResNet50_Weights.IMAGENET1K_V2.transforms()])
+    train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=train_transforms)
+
     # Hint: adjust batch_size and num_workers to your PC configuration, so that you don't 
     # run out of memory
-    train_loader = DataLoader(dataset=train_dataset,
-                              batch_size=64,
-                              shuffle=False,
-                              pin_memory=True, num_workers=16)
+    num_workers = 4
+    batch_size = 1
+    batches = int(10000/batch_size)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
 
-    # TODO: define a model for extraction of the embeddings (Hint: load a pretrained model,
-    #  more info here: https://pytorch.org/vision/stable/models.html)
-    model = nn.Module()
-    embeddings = []
-    embedding_size = 1000 # Dummy variable, replace with the actual embedding size once you 
-    # pick your model
+    # define pretrained model, remove last layer and activate evaluation
+
+    model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2) 
+    model = torch.nn.Sequential(*(list(model.children())[:-1]))
+    model.eval()
+
+    embedding_size = 2048 #needs to be derived from the pretrained model
     num_images = len(train_dataset)
     embeddings = np.zeros((num_images, embedding_size))
-    # TODO: Use the model to extract the embeddings. Hint: remove the last layers of the 
-    # model to access the embeddings the model generates. 
 
-    np.save('dataset/embeddings.npy', embeddings)
+    l = 0
+    with torch.no_grad():
+        for k in range(batches):
+            i = iter(train_loader)
+            features, labels = next(i)
+            output = model(features)
+            for j in range(batch_size):
+                embeddings[l, :] = np.squeeze(output[j])
+                l += 1
+    
+    np.save('./task 3/dataset/embeddings.npy', embeddings)
+
 
 
 def get_data(file, train=True):
@@ -60,8 +70,7 @@ def get_data(file, train=True):
             triplets.append(line)
 
     # generate training data from triplets
-    train_dataset = datasets.ImageFolder(root="dataset/",
-                                         transform=None)
+    train_dataset = datasets.ImageFolder(root="dataset/", transform=None)
     filenames = [s[0].split('/')[-1].replace('.jpg', '') for s in train_dataset.samples]
     embeddings = np.load('dataset/embeddings.npy')
     # TODO: Normalize the embeddings across the dataset
@@ -85,7 +94,7 @@ def get_data(file, train=True):
     return X, y
 
 # Hint: adjust batch_size and num_workers to your PC configuration, so that you don't run out of memory
-def create_loader_from_np(X, y = None, train = True, batch_size=64, shuffle=True, num_workers = 4):
+def create_loader_from_np(X, y = None, train = True, batch_size=20, shuffle=True, num_workers = 2):
     """
     Create a torch.utils.data.DataLoader object from numpy arrays containing the data.
 
@@ -180,6 +189,7 @@ def test_model(model, loader):
 
 # Main function. You don't have to change this
 if __name__ == '__main__':
+    generate_embeddings()
     TRAIN_TRIPLETS = 'train_triplets.txt'
     TEST_TRIPLETS = 'test_triplets.txt'
 
