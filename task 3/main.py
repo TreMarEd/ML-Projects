@@ -1,3 +1,4 @@
+# TODO: explain the task
 # This serves as a template which will guide you through the implementation of this task.  It is advised
 # to first read the whole template and get a sense of the overall structure of the code before trying to fill in any of the TODO gaps
 # First, we import necessary libraries:
@@ -12,6 +13,9 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights
 from sklearn.preprocessing import MinMaxScaler
+from matplotlib import pyplot as plt
+
+#TODO: general cosmetics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -31,7 +35,7 @@ def generate_embeddings():
     train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
 
     # define pretrained model, remove last layer and activate evaluation
-
+    #TODO: try resnet152
     model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2) 
     model = torch.nn.Sequential(*(list(model.children())[:-1]))
     model.eval()
@@ -115,7 +119,7 @@ def create_loader_from_np(X, y = None, train = True, batch_size=50, shuffle=True
     """
     if train:
         dataset = TensorDataset(torch.from_numpy(X).type(torch.float), 
-                                torch.from_numpy(y).type(torch.long))
+                                torch.from_numpy(y).type(torch.float))
         
     else:
         dataset = TensorDataset(torch.from_numpy(X).type(torch.float))
@@ -124,7 +128,7 @@ def create_loader_from_np(X, y = None, train = True, batch_size=50, shuffle=True
 
     return loader
 
-# TODO: define architecture
+
 class Net(nn.Module):
     """
     The model class, which defines our classifier.
@@ -134,8 +138,8 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc = nn.Linear(2*2048, 100) #2048 is current embedding dimension
-        self.w = torch.nn.Parameter(torch.randn(100))
+        self.fc = nn.Linear(2*2048, 20) #2048 is current embedding dimension
+        self.w = torch.nn.Parameter(torch.randn(20))
 
     def forward(self, x):
         """
@@ -145,22 +149,24 @@ class Net(nn.Module):
 
         output: x: torch.Tensor, the output of the model
         """
-        A = x[0:2048]
-        B = x[2048:(2*2048)]
-        C = x[(2*2048):(3*2048)]
+        #TODO: regularization
+        A = x[:,0:2048]
+        B = x[:,2048:(2*2048)]
+        C = x[:,(2*2048):(3*2048)]
 
-        AB = torch.cat(A, B, 1)
-        AC = torch.cat(A, C, 1)
+        AB = torch.cat((A, B), 1)
+        AC = torch.cat((A, C), 1)
 
         AB = F.relu(self.fc(AB))
         AC = F.relu(self.fc(AC))
 
-        x = torch.dot(self.w, AB-AC)
+        x = torch.matmul(AB-AC, self.w)
         x = F.sigmoid(x)
 
         return x
 
-def train_model(train_loader):
+
+def train_model(train_loader, X, y):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
@@ -172,17 +178,39 @@ def train_model(train_loader):
     model = Net()
     model.train()
     model.to(device)
-
-    n_epochs = 10
+    
     # TODO: define a loss function, optimizer and proceed with training. Hint: use the part 
     # of the training data as a validation split. After each epoch, compute the loss on the 
     # validation split and print it out. This enables you to see how your model is performing 
     # on the validation data before submitting the results on the server. After choosing the 
     # best model, train it on the whole training data.
 
-    for epoch in range(n_epochs):        
-        for [X, y] in train_loader:
-            pass
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    epochs = 5
+    train_losses = []
+    vali_losses = []
+
+    #TODO: validation split, plot of validation and training loss
+    for epoch in range(epochs):
+        print(f'\nepoch: {epoch}')     
+        for [X_, y_] in train_loader:
+            y_pred = model.forward(X_)
+            loss = criterion(y_pred, y_)
+            
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        
+        y_pred = model.forward(X)
+        loss = criterion(y_pred, y)
+        train_losses.append(loss)
+            
+    
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
+    #axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'go')
+    #TODO: plot cosmetics and saving plot without showing
+    plt.show()
 
     return model
 
@@ -231,7 +259,7 @@ if __name__ == '__main__':
     test_loader = create_loader_from_np(X_test, train = False, batch_size=50, shuffle=False)
 
     # define a model and train it
-    model = train_model(train_loader)
+    model = train_model(train_loader, X=torch.from_numpy(X).type(torch.float), y=torch.from_numpy(y).type(torch.float))
     
     # test the model on the test data
     test_model(model, test_loader)
