@@ -166,7 +166,7 @@ class Net(nn.Module):
         return x
 
 
-def train_model(train_loader, X, y):
+def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
@@ -179,39 +179,41 @@ def train_model(train_loader, X, y):
     model.train()
     model.to(device)
     
-    # TODO: define a loss function, optimizer and proceed with training. Hint: use the part 
-    # of the training data as a validation split. After each epoch, compute the loss on the 
-    # validation split and print it out. This enables you to see how your model is performing 
-    # on the validation data before submitting the results on the server. After choosing the 
-    # best model, train it on the whole training data.
+    # TODO: After choosing the best model, train it on the whole training data.
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    epochs = 5
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
+    epochs = 10
     train_losses = []
     vali_losses = []
 
     #TODO: validation split, plot of validation and training loss
     for epoch in range(epochs):
         print(f'\nepoch: {epoch}')     
-        for [X_, y_] in train_loader:
-            y_pred = model.forward(X_)
-            loss = criterion(y_pred, y_)
+        for [X, y] in train_loader:
+            y_pred = model.forward(X)
+            loss = criterion(y_pred, y)
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
         
-        y_pred = model.forward(X)
-        loss = criterion(y_pred, y)
+        y_pred = model.forward(X_train)
+        loss = criterion(y_pred, y_train)
         train_losses.append(loss)
+
+        y_pred = model.forward(X_vali)
+        loss = criterion(y_pred, y_vali)
+        vali_losses.append(loss)
             
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
-    #axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'go')
-    #TODO: plot cosmetics and saving plot without showing
-    plt.show()
-
+    plt.savefig("./task 3/train.png")
+    plt.clf()
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'b-')
+    plt.savefig("./task 3/vali.png")
+    #TODO: plot cosmetics
+    
     return model
 
 def test_model(model, loader):
@@ -254,12 +256,26 @@ if __name__ == '__main__':
     X, y = get_data(TRAIN_TRIPLETS)
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
 
+    np.random.seed(2)
+    p = 0.8
+    mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
+    mask_vali = [not i for i in mask_train]
+
+
+    X_train = X[mask_train, :]
+    y_train = y[mask_train]
+
+    X_vali = X[mask_vali, :]
+    y_vali = y[mask_vali]
+
     # Create data loaders for the training and testing data
-    train_loader = create_loader_from_np(X, y, train = True, batch_size=50)
+    train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=50)
     test_loader = create_loader_from_np(X_test, train = False, batch_size=50, shuffle=False)
 
     # define a model and train it
-    model = train_model(train_loader, X=torch.from_numpy(X).type(torch.float), y=torch.from_numpy(y).type(torch.float))
+    model = train_model(train_loader, 
+                        X_train=torch.from_numpy(X_train).type(torch.float), y_train=torch.from_numpy(y_train).type(torch.float),
+                        X_vali=torch.from_numpy(X_vali).type(torch.float), y_vali=torch.from_numpy(y_vali).type(torch.float))
     
     # test the model on the test data
     test_model(model, test_loader)
