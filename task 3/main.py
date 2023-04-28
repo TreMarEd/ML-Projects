@@ -108,7 +108,7 @@ def get_data(file, train=True):
     return X, y
 
 # Hint: adjust batch_size and num_workers to your PC configuration, so that you don't run out of memory
-def create_loader_from_np(X, y = None, train = True, batch_size=50, shuffle=True, num_workers = 0):
+def create_loader_from_np(X, y = None, train = True, batch_size=30, shuffle=True, num_workers = 0):
     """
     Create a torch.utils.data.DataLoader object from numpy arrays containing the data.
 
@@ -138,8 +138,8 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc = nn.Linear(2*2048, 20) #2048 is current embedding dimension
-        self.w = torch.nn.Parameter(torch.randn(20))
+        self.fc = nn.Linear(2*2048, 500) #2048 is current embedding dimension
+        self.w = torch.nn.Parameter(torch.randn(500))
 
     def forward(self, x):
         """
@@ -166,7 +166,7 @@ class Net(nn.Module):
         return x
 
 
-def train_model(train_loader, X_train, y_train, X_vali, y_vali):
+def train_model(X_train, y_train, X_vali, y_vali):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
@@ -183,33 +183,42 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
 
     criterion = nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    epochs = 30
-    train_losses = []
+    epochs = 3
+    batch_size = 1000
+    num_batches = int(y_train.size(dim=0)/batch_size)+1
     vali_losses = []
+    train_losses = []
 
-    #TODO: validation split, plot of validation and training loss
     for epoch in range(epochs):
-        print(f'\nepoch: {epoch}')     
-        for [X, y] in train_loader:
-            y_pred = model.forward(X)
-            loss = criterion(y_pred, y)
+        print(f'\nepoch: {epoch}')
+            
+        #for [X, y] in train_loader:
+        for i in range(num_batches):
+            start= i*batch_size
+            end = (i+1)*batch_size
+            y_pred = model.forward(X_train[start:end, :])
+            loss = criterion(y_pred, y_train[start:end])
             
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
-        
-        y_pred = model.forward(X_train)
-        loss = criterion(y_pred, y_train)
-        train_losses.append(loss)
 
-        y_pred = model.forward(X_vali)
-        loss = criterion(y_pred, y_vali)
-        vali_losses.append(loss)
-            
+        model.eval()
+        with torch.no_grad():
+            y_pred = model.forward(X_train)
+            loss = criterion(y_pred, y_train)
+            print(f"\n train loss {loss}")
+            train_losses.append(loss)
+
+            y_pred = model.forward(X_vali)
+            loss = criterion(y_pred, y_vali)
+            print(f"\n vali loss {loss}")
+            vali_losses.append(loss)
+        model.train()
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
     plt.savefig("./task 3/train.png")
-    plt.clf()
+    
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'b-')
     plt.savefig("./task 3/vali.png")
     #TODO: plot cosmetics
@@ -243,7 +252,6 @@ def test_model(model, loader):
     np.savetxt("./task 3/results.txt", predictions, fmt='%i')
 
 
-# Main function. You don't have to change this
 if __name__ == '__main__':
     TRAIN_TRIPLETS = './task 3/train_triplets.txt'
     TEST_TRIPLETS = './task 3/test_triplets.txt'
@@ -269,12 +277,11 @@ if __name__ == '__main__':
     y_vali = y[mask_vali]
 
     # Create data loaders for the training and testing data
-    train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=50)
-    test_loader = create_loader_from_np(X_test, train = False, batch_size=50, shuffle=False)
+    #train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=10)
+    test_loader = create_loader_from_np(X_test, train = False, batch_size=10, shuffle=False)
 
     # define a model and train it
-    model = train_model(train_loader, 
-                        X_train=torch.from_numpy(X_train).type(torch.float), y_train=torch.from_numpy(y_train).type(torch.float),
+    model = train_model(X_train=torch.from_numpy(X_train).type(torch.float), y_train=torch.from_numpy(y_train).type(torch.float),
                         X_vali=torch.from_numpy(X_vali).type(torch.float), y_vali=torch.from_numpy(y_vali).type(torch.float))
     
     # test the model on the test data
