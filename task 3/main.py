@@ -182,8 +182,8 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     # TODO: After choosing the best model, train it on the whole training data.
 
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.05)
-    epochs = 10
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
+    epochs = 30
     train_losses = []
     vali_losses = []
 
@@ -239,7 +239,7 @@ def test_model(model, loader):
             predicted[predicted >= 0.5] = 1
             predicted[predicted < 0.5] = 0
             predictions.append(predicted)
-        predictions = np.vstack(predictions)
+        predictions = np.hstack(predictions)
     np.savetxt("./task 3/results.txt", predictions, fmt='%i')
 
 
