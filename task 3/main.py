@@ -138,8 +138,10 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc = nn.Linear(2*2048, 500) #2048 is current embedding dimension
-        self.w = torch.nn.Parameter(torch.randn(500))
+        self.fc1 = nn.Linear(2*2048, 1000) #2048 is current embedding dimension
+        self.fc2 = nn.Linear(1000,1000)
+        self.fc3 = nn.Linear(1000,1)
+
 
     def forward(self, x):
         """
@@ -157,11 +159,14 @@ class Net(nn.Module):
         AB = torch.cat((A, B), 1)
         AC = torch.cat((A, C), 1)
 
-        AB = F.relu(self.fc(AB))
-        AC = F.relu(self.fc(AC))
+        AB = F.relu(self.fc1(AB))
+        AC = F.relu(self.fc1(AC))
+        AB = F.relu(self.fc2(AB))
+        AC = F.relu(self.fc2(AC))
+        AB = F.relu(self.fc3(AB))
+        AC = F.relu(self.fc3(AC))
 
-        x = torch.matmul(AB-AC, self.w)
-        x = F.sigmoid(x)
+        x = F.sigmoid(AB-AC)
 
         return x
 
@@ -181,9 +186,9 @@ def train_model(X_train, y_train, X_vali, y_vali):
     
     # TODO: After choosing the best model, train it on the whole training data.
 
-    criterion = nn.CrossEntropyLoss()
+    criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    epochs = 3
+    epochs = 50
     batch_size = 1000
     num_batches = int(y_train.size(dim=0)/batch_size)+1
     vali_losses = []
@@ -196,7 +201,7 @@ def train_model(X_train, y_train, X_vali, y_vali):
         for i in range(num_batches):
             start= i*batch_size
             end = (i+1)*batch_size
-            y_pred = model.forward(X_train[start:end, :])
+            y_pred = torch.squeeze(model.forward(X_train[start:end, :]))
             loss = criterion(y_pred, y_train[start:end])
             
             optimizer.zero_grad()
@@ -218,7 +223,7 @@ def train_model(X_train, y_train, X_vali, y_vali):
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
     plt.savefig("./task 3/train.png")
-    
+    plt.clf()
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'b-')
     plt.savefig("./task 3/vali.png")
     #TODO: plot cosmetics
