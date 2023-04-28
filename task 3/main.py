@@ -76,6 +76,7 @@ def get_data(file, train=True):
     filenames = [s[0].split('/')[-1].replace('.jpg', '') for s in train_dataset.samples]
 
     embeddings = np.load('./task 3/dataset/embeddings.npy')
+
     scaler = MinMaxScaler()
     embeddings = scaler.fit_transform(embeddings)
 
@@ -123,9 +124,7 @@ def create_loader_from_np(X, y = None, train = True, batch_size=50, shuffle=True
 
     return loader
 
-# TODO: what architecture should I use?
-# start with cross entropy loss, single output, no softwax, intermerdiate fc layer wo regularization, wo inductive bias of antisymmetry
-# note: with cross enttropy lossoutput needs to be >0, so you need to exponentiate at the end
+# TODO: define architecture
 class Net(nn.Module):
     """
     The model class, which defines our classifier.
@@ -135,7 +134,8 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc = nn.Linear(3000, 1)
+        self.fc = nn.Linear(2*2048, 100) #2048 is current embedding dimension
+        self.w = torch.nn.Parameter(torch.randn(100))
 
     def forward(self, x):
         """
@@ -145,8 +145,19 @@ class Net(nn.Module):
 
         output: x: torch.Tensor, the output of the model
         """
-        x = self.fc(x)
-        x = F.relu(x)
+        A = x[0:2048]
+        B = x[2048:(2*2048)]
+        C = x[(2*2048):(3*2048)]
+
+        AB = torch.cat(A, B, 1)
+        AC = torch.cat(A, C, 1)
+
+        AB = F.relu(self.fc(AB))
+        AC = F.relu(self.fc(AC))
+
+        x = torch.dot(self.w, AB-AC)
+        x = F.sigmoid(x)
+
         return x
 
 def train_model(train_loader):
@@ -204,7 +215,6 @@ def test_model(model, loader):
 
 # Main function. You don't have to change this
 if __name__ == '__main__':
-    generate_embeddings()
     TRAIN_TRIPLETS = './task 3/train_triplets.txt'
     TEST_TRIPLETS = './task 3/test_triplets.txt'
 
@@ -217,8 +227,8 @@ if __name__ == '__main__':
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
 
     # Create data loaders for the training and testing data
-    train_loader = create_loader_from_np(X, y, train = True, batch_size=64)
-    test_loader = create_loader_from_np(X_test, train = False, batch_size=2048, shuffle=False)
+    train_loader = create_loader_from_np(X, y, train = True, batch_size=50)
+    test_loader = create_loader_from_np(X_test, train = False, batch_size=50, shuffle=False)
 
     # define a model and train it
     model = train_model(train_loader)
