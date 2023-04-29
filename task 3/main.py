@@ -138,9 +138,9 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc1 = nn.Linear(2*2048, 1000) #2048 is current embedding dimension
-        self.fc2 = nn.Linear(1000,1000)
-        self.fc3 = nn.Linear(1000,1)
+        #self.fc1 = nn.Linear(2*2048, 100) #2048 is current embedding dimension
+        self.fc1 = nn.Linear(3*2048, 1)
+        #self.fc2 = nn.Linear(100,1)
 
 
     def forward(self, x):
@@ -152,6 +152,7 @@ class Net(nn.Module):
         output: x: torch.Tensor, the output of the model
         """
         #TODO: regularization
+        """
         A = x[:,0:2048]
         B = x[:,2048:(2*2048)]
         C = x[:,(2*2048):(3*2048)]
@@ -165,13 +166,19 @@ class Net(nn.Module):
         AC = F.relu(self.fc2(AC))
         AB = F.relu(self.fc3(AB))
         AC = F.relu(self.fc3(AC))
+        
 
         x = F.sigmoid(AB-AC)
+        
+        return torch.squeeze(x)
+        """
+        #x = F.relu(self.fc1(x))
+        x = self.fc1(x)
 
-        return x
+        return torch.squeeze(F.sigmoid(x))
 
 
-def train_model(X_train, y_train, X_vali, y_vali):
+def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
@@ -187,22 +194,19 @@ def train_model(X_train, y_train, X_vali, y_vali):
     # TODO: After choosing the best model, train it on the whole training data.
 
     criterion = torch.nn.BCELoss()
+    #TODO: stop normalizing the loss https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    epochs = 50
-    batch_size = 1000
-    num_batches = int(y_train.size(dim=0)/batch_size)+1
+    epochs = 10
     vali_losses = []
     train_losses = []
 
     for epoch in range(epochs):
         print(f'\nepoch: {epoch}')
             
-        #for [X, y] in train_loader:
-        for i in range(num_batches):
-            start= i*batch_size
-            end = (i+1)*batch_size
-            y_pred = torch.squeeze(model.forward(X_train[start:end, :]))
-            loss = criterion(y_pred, y_train[start:end])
+        for [X_batch, y_batch] in train_loader:
+            y_pred = model.forward(X_batch)
+            loss = criterion(y_pred, y_batch)
+            #print(f"\nbatch loss {loss}") #always the same batch loss is printed, unclear why
             
             optimizer.zero_grad()
             loss.backward()
@@ -266,11 +270,13 @@ if __name__ == '__main__':
         generate_embeddings()
 
     # load the training and testing data
+    print("\nloading data")
     X, y = get_data(TRAIN_TRIPLETS)
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
 
     np.random.seed(2)
     p = 0.8
+    print("\npreparing train vali split")
     mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
     mask_vali = [not i for i in mask_train]
 
@@ -282,11 +288,11 @@ if __name__ == '__main__':
     y_vali = y[mask_vali]
 
     # Create data loaders for the training and testing data
-    #train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=10)
-    test_loader = create_loader_from_np(X_test, train = False, batch_size=10, shuffle=False)
+    train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=1000)
+    test_loader = create_loader_from_np(X_test, train = False, batch_size=1000, shuffle=False)
 
     # define a model and train it
-    model = train_model(X_train=torch.from_numpy(X_train).type(torch.float), y_train=torch.from_numpy(y_train).type(torch.float),
+    model = train_model(train_loader, X_train=torch.from_numpy(X_train).type(torch.float), y_train=torch.from_numpy(y_train).type(torch.float),
                         X_vali=torch.from_numpy(X_vali).type(torch.float), y_vali=torch.from_numpy(y_vali).type(torch.float))
     
     # test the model on the test data
