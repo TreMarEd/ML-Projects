@@ -12,7 +12,7 @@ import torchvision.datasets as datasets
 import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from matplotlib import pyplot as plt
 
 #TODO: general cosmetics
@@ -82,6 +82,7 @@ def get_data(file, train=True):
     embeddings = np.load('./task 3/dataset/embeddings.npy')
 
     scaler = MinMaxScaler()
+    #scaler = StandardScaler()
     embeddings = scaler.fit_transform(embeddings)
 
     file_to_embedding = {}
@@ -139,8 +140,9 @@ class Net(nn.Module):
         """
         super().__init__()
         #self.fc1 = nn.Linear(2*2048, 100) #2048 is current embedding dimension
-        self.fc1 = nn.Linear(3*2048, 1)
-        #self.fc2 = nn.Linear(100,1)
+        self.fc1 = nn.Linear(3*2048, 1000)
+        self.fc2 = nn.Linear(1000,1000)
+        self.fc3 = nn.Linear(1000,1)
 
 
     def forward(self, x):
@@ -172,8 +174,9 @@ class Net(nn.Module):
         
         return torch.squeeze(x)
         """
-        #x = F.relu(self.fc1(x))
-        x = self.fc1(x)
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
 
         return torch.squeeze(F.sigmoid(x))
 
@@ -195,8 +198,8 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
 
     criterion = torch.nn.BCELoss()
     #TODO: stop normalizing the loss https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01)
-    epochs = 10
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
+    epochs = 30
     vali_losses = []
     train_losses = []
 
@@ -206,7 +209,6 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
         for [X_batch, y_batch] in train_loader:
             y_pred = model.forward(X_batch)
             loss = criterion(y_pred, y_batch)
-            #print(f"\nbatch loss {loss}") #always the same batch loss is printed, unclear why
             
             optimizer.zero_grad()
             loss.backward()
@@ -286,6 +288,7 @@ if __name__ == '__main__':
 
     X_vali = X[mask_vali, :]
     y_vali = y[mask_vali]
+
 
     # Create data loaders for the training and testing data
     train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=1000)
