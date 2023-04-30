@@ -81,8 +81,8 @@ def get_data(file, train=True):
 
     embeddings = np.load('./task 3/dataset/embeddings.npy')
 
-    scaler = MinMaxScaler()
-    #scaler = StandardScaler()
+    #scaler = MinMaxScaler()
+    scaler = StandardScaler()
     embeddings = scaler.fit_transform(embeddings)
 
     file_to_embedding = {}
@@ -140,10 +140,18 @@ class Net(nn.Module):
         """
         super().__init__()
         #self.fc1 = nn.Linear(2*2048, 100) #2048 is current embedding dimension
+        
         self.fc1 = nn.Linear(3*2048, 1000)
         self.fc2 = nn.Linear(1000,1000)
         self.fc3 = nn.Linear(1000,1)
-
+        self.dropout = nn.Dropout(0.25)
+        """
+        self.fc1 = nn.Linear(2*2048,1100)
+        self.fc2 = nn.Linear(1100,1100)
+        self.fc3 = nn.Linear(1000,1)
+        """
+        #self.W = nn.Parameter(torch.randn(1100,1100))
+        
 
     def forward(self, x):
         """
@@ -155,6 +163,7 @@ class Net(nn.Module):
         """
         #TODO: regularization
         """
+        #currently gives killed 9 error, make matrix multiplication more efficeint
         A = x[:,0:2048]
         B = x[:,2048:(2*2048)]
         C = x[:,(2*2048):(3*2048)]
@@ -166,20 +175,28 @@ class Net(nn.Module):
         AC = F.relu(self.fc1(AC))
         AB = F.relu(self.fc2(AB))
         AC = F.relu(self.fc2(AC))
-        AB = F.relu(self.fc3(AB))
-        AC = F.relu(self.fc3(AC))
-        
+        #AB = F.relu(self.fc3(AB))
+        #AC = F.relu(self.fc3(AC))
 
-        x = F.sigmoid(AB-AC)
+    
+        M = torch.transpose(self.W,0,1) - self.W
+        x = torch.matmul(AC, torch.matmul(M, torch.transpose(AB,0,1)))
+        x = torch.diagonal(x)
+
+        x = F.sigmoid(x)
         
+        #x = self.dropout(x)
         return torch.squeeze(x)
         """
+
         x = F.relu(self.fc1(x))
+        x = self.dropout(x)
         x = F.relu(self.fc2(x))
+        x = self.droput(x)
         x = self.fc3(x)
 
         return torch.squeeze(F.sigmoid(x))
-
+        
 
 def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     """
@@ -198,8 +215,9 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
 
     criterion = torch.nn.BCELoss()
     #TODO: stop normalizing the loss https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.0001)
-    epochs = 30
+    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    #optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
+    epochs = 5
     vali_losses = []
     train_losses = []
 
@@ -207,15 +225,15 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
         print(f'\nepoch: {epoch}')
             
         for [X_batch, y_batch] in train_loader:
+            optimizer.zero_grad()
             y_pred = model.forward(X_batch)
             loss = criterion(y_pred, y_batch)
-            
-            optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-        model.eval()
+        
         with torch.no_grad():
+            model.eval()
             y_pred = model.forward(X_train)
             loss = criterion(y_pred, y_train)
             print(f"\n train loss {loss}")
@@ -224,7 +242,8 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             y_pred = model.forward(X_vali)
             loss = criterion(y_pred, y_vali)
             print(f"\n vali loss {loss}")
-            vali_losses.append(loss)
+            vali_losses.append(loss)  
+             
         model.train()
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
