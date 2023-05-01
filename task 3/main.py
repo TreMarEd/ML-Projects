@@ -18,6 +18,10 @@ from matplotlib import pyplot as plt
 #TODO: general cosmetics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+learning_rate = 1e-5
+batches_size = 32
+num_neurons = 1000
+num_epochs = 20
 
 def generate_embeddings():
     """
@@ -138,18 +142,8 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.classifier = nn.Linear(2048, 1000) #2048 is current embedding dimension
-        self.a = nn.Parameter(torch.randn(1))
-        #self.fc1 = nn.Linear(3*2048, 6000)
-        #self.fc2 = nn.Linear(4000,4000)
-        #self.fc3 = nn.Linear(4000,1)
-        #self.dropout = nn.Dropout(0.25)
-        """
-        self.fc1 = nn.Linear(2*2048,1100)
-        self.fc2 = nn.Linear(1100,1100)
-        self.fc3 = nn.Linear(1000,1)
-        """
-        #self.W = nn.Parameter(torch.randn(1100,1100))
+        self.classifier = nn.Linear(2048, num_neurons) #2048 is current embedding dimension
+        #self.a = nn.Parameter(torch.tensor(1.))
         
 
     def forward(self, x):
@@ -160,36 +154,27 @@ class Net(nn.Module):
 
         output: x: torch.Tensor, the output of the model
         """
-        #TODO: regularization
     
         A = x[:,0:2048]
         B = x[:,2048:(2*2048)]
         C = x[:,(2*2048):(3*2048)]
 
+        #with reul?
         A = self.classifier(A)
         B = self.classifier(B)
         C = self.classifier(C)
 
-        A = F.softmax(A)
-        B = F.softmax(B)
-        C = F.softmax(C)
+        A = F.softmax(A, dim=1)
+        B = F.softmax(B, dim=1)
+        C = F.softmax(C, dim=1)
 
-        delta_AB = (A-B).norm(dim=1,p=2)
-        delta_AC = (A-C).norm(dim=1,p=2)
+        delta_AB = (A-B).norm(dim=1, p=2) #use KL divergence?
+        delta_AC = (A-C).norm(dim=1, p=2)
 
-        x = self.a * (delta_AC-delta_AB)
+        x = delta_AC - delta_AB
         x = F.sigmoid(x)
         
-        return torch.squeeze(x)
-        
-        #x = self.dropout(x)
-        #x = F.relu(self.fc1(x))
-        #x = self.dropout(x)
-        #x = F.relu(self.fc2(x))
-        #x = self.dropout(x)
-        #x = self.fc2(x)
-
-        #return torch.squeeze(F.sigmoid(x))
+        return x
         
 
 def train_model(train_loader, X_train, y_train, X_vali, y_vali):
@@ -207,12 +192,12 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     
     # TODO: After choosing the best model, train it on the whole training data.
 
-    criterion = torch.nn.BCELoss()
+    criterion = torch.nn.BCELoss() #accuracy ausprobieren??
     #TODO: stop normalizing the loss https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
-    optimizer = torch.optim.Adam(model.parameters(), lr=3e-5)
+    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     #optimizer = torch.optim.SDG(model.parameters(), lr=2e-4, momentum=0.9)
     #optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
-    epochs = 10
+    epochs = num_epochs
     vali_losses = []
     train_losses = []
 
@@ -240,10 +225,13 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
 
         model.train()
     
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-')
-    plt.savefig("./task 3/learning_curve.png")
-    #TODO: plot cosmetics
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali")
+    plt.xlabel("epoch")
+    plt.ylabel("BCE-Loss")
+    plt.legend(loc="upper right")
+    plt.grid()
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons}_stand_b{batches_size}.png")
     
     return model
 
@@ -287,7 +275,7 @@ if __name__ == '__main__':
     X, y = get_data(TRAIN_TRIPLETS)
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
 
-    np.random.seed(4)
+    np.random.seed(6)
     p = 0.8
     print("\npreparing train vali split")
     mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
@@ -302,7 +290,7 @@ if __name__ == '__main__':
 
 
     # Create data loaders for the training and testing data
-    train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=1000)
+    train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=batches_size)
     test_loader = create_loader_from_np(X_test, train = False, batch_size=1000, shuffle=False)
 
     # define a model and train it
