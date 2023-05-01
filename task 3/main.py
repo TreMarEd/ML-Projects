@@ -18,10 +18,11 @@ from matplotlib import pyplot as plt
 #TODO: general cosmetics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-learning_rate = 1e-5
-batches_size = 32
-num_neurons = 1000
-num_epochs = 20
+learning_rate = 5e-4
+batches_size = 16
+num_neurons1 = 2000
+num_neurons2 = 2000
+num_epochs = 10
 
 def generate_embeddings():
     """
@@ -142,7 +143,8 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.classifier = nn.Linear(2048, num_neurons) #2048 is current embedding dimension
+        self.fc1 = nn.Linear(2048, num_neurons1) #2048 is current embedding dimension
+        self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         #self.a = nn.Parameter(torch.tensor(1.))
         
 
@@ -160,16 +162,23 @@ class Net(nn.Module):
         C = x[:,(2*2048):(3*2048)]
 
         #with reul?
-        A = self.classifier(A)
-        B = self.classifier(B)
-        C = self.classifier(C)
+        A = F.relu(self.fc1(A))
+        B = F.relu(self.fc1(B))
+        C = F.relu(self.fc1(C))
+                   
+        A = self.fc2(A)
+        B = self.fc2(B)
+        C = self.fc2(C)
 
-        A = F.softmax(A, dim=1)
-        B = F.softmax(B, dim=1)
-        C = F.softmax(C, dim=1)
+        A = F.normalize(A, dim=1, p=2)
+        B = F.normalize(B, dim=1, p=2)
+        C = F.normalize(C, dim=1, p=2)
 
-        delta_AB = (A-B).norm(dim=1, p=2) #use KL divergence?
-        delta_AC = (A-C).norm(dim=1, p=2)
+        #delta_AB = F.cross_entropy(B, A, reduction='sum')
+        #delta_AC = F.cross_entropy(C, A, reduction='sum')
+
+        delta_AB = torch.sum(torch.square(A-B), dim=1)
+        delta_AC = torch.sum(torch.square(A-C), dim=1)
 
         x = delta_AC - delta_AB
         x = F.sigmoid(x)
@@ -200,6 +209,8 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     epochs = num_epochs
     vali_losses = []
     train_losses = []
+    vali_accuracy = []
+    train_accuracy = []
 
     for epoch in range(epochs):
         print(f'\nepoch: {epoch}')
@@ -215,23 +226,33 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             model.eval()
             y_pred = model.forward(X_train)
             loss = criterion(y_pred, y_train)
+            y_pred[y_pred >= 0.5] = 1
+            y_pred[y_pred < 0.5] = 0
+            accuracy = torch.sum(y_pred == torch.round(y_train))/y_train.size(0)
             print(f"\n train loss {100*loss}%")
             train_losses.append(loss)
+            train_accuracy.append(accuracy)
 
             y_pred = model.forward(X_vali)
             loss = criterion(y_pred, y_vali)
+            y_pred[y_pred >= 0.5] = 1
+            y_pred[y_pred < 0.5] = 0
+            accuracy = torch.sum(y_pred == torch.roung(y_vali))/y_train.size(0)
             print(f"\n vali loss {100*loss}%")
-            vali_losses.append(loss)  
+            vali_losses.append(loss)
+            vali_accuracy.append(accuracy)  
 
         model.train()
     
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train BCE")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali BCE")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_accuracy], 'b--', label="train accuracy")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'g--', label="vali accuracy")
     plt.xlabel("epoch")
-    plt.ylabel("BCE-Loss")
+    plt.ylabel("Loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons}_stand_b{batches_size}.png")
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1}_{num_neurons2}_stand_b{batches_size}.png")
     
     return model
 
@@ -277,6 +298,7 @@ if __name__ == '__main__':
 
     np.random.seed(6)
     p = 0.8
+    p = 0.001
     print("\npreparing train vali split")
     mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
     mask_vali = [not i for i in mask_train]
