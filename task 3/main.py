@@ -11,7 +11,7 @@ from torchvision import transforms
 import torchvision.datasets as datasets
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet50, ResNet50_Weights
+from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from matplotlib import pyplot as plt
 
@@ -29,10 +29,9 @@ def generate_embeddings():
     train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=train_transforms)
 
     # Hint: adjust batch_size and num_workers to your PC configuration, so that you don't run out of memory
-    num_workers = 0
     batch_size = 50
     batches = int(10000/batch_size)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=num_workers)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=50, shuffle=False, pin_memory=True, num_workers=0)
 
     # define pretrained model, remove last layer and activate evaluation
     #TODO: try resnet152
@@ -139,12 +138,12 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        #self.fc1 = nn.Linear(2*2048, 100) #2048 is current embedding dimension
-        
-        self.fc1 = nn.Linear(3*2048, 1000)
-        self.fc2 = nn.Linear(1000,1000)
-        self.fc3 = nn.Linear(1000,1)
-        self.dropout = nn.Dropout(0.25)
+        self.classifier = nn.Linear(2048, 1000) #2048 is current embedding dimension
+        self.a = nn.Parameter(torch.randn(1))
+        #self.fc1 = nn.Linear(3*2048, 6000)
+        #self.fc2 = nn.Linear(4000,4000)
+        #self.fc3 = nn.Linear(4000,1)
+        #self.dropout = nn.Dropout(0.25)
         """
         self.fc1 = nn.Linear(2*2048,1100)
         self.fc2 = nn.Linear(1100,1100)
@@ -162,40 +161,35 @@ class Net(nn.Module):
         output: x: torch.Tensor, the output of the model
         """
         #TODO: regularization
-        """
-        #currently gives killed 9 error, make matrix multiplication more efficeint
+    
         A = x[:,0:2048]
         B = x[:,2048:(2*2048)]
         C = x[:,(2*2048):(3*2048)]
 
-        AB = torch.cat((A, B), 1)
-        AC = torch.cat((A, C), 1)
+        A = self.classifier(A)
+        B = self.classifier(B)
+        C = self.classifier(C)
 
-        AB = F.relu(self.fc1(AB))
-        AC = F.relu(self.fc1(AC))
-        AB = F.relu(self.fc2(AB))
-        AC = F.relu(self.fc2(AC))
-        #AB = F.relu(self.fc3(AB))
-        #AC = F.relu(self.fc3(AC))
+        A = F.softmax(A)
+        B = F.softmax(B)
+        C = F.softmax(C)
 
-    
-        M = torch.transpose(self.W,0,1) - self.W
-        x = torch.matmul(AC, torch.matmul(M, torch.transpose(AB,0,1)))
-        x = torch.diagonal(x)
+        delta_AB = (A-B).norm(dim=1,p=2)
+        delta_AC = (A-C).norm(dim=1,p=2)
 
+        x = self.a * (delta_AC-delta_AB)
         x = F.sigmoid(x)
         
-        #x = self.dropout(x)
         return torch.squeeze(x)
-        """
+        
+        #x = self.dropout(x)
+        #x = F.relu(self.fc1(x))
+        #x = self.dropout(x)
+        #x = F.relu(self.fc2(x))
+        #x = self.dropout(x)
+        #x = self.fc2(x)
 
-        x = F.relu(self.fc1(x))
-        x = self.dropout(x)
-        x = F.relu(self.fc2(x))
-        x = self.droput(x)
-        x = self.fc3(x)
-
-        return torch.squeeze(F.sigmoid(x))
+        #return torch.squeeze(F.sigmoid(x))
         
 
 def train_model(train_loader, X_train, y_train, X_vali, y_vali):
@@ -215,9 +209,10 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
 
     criterion = torch.nn.BCELoss()
     #TODO: stop normalizing the loss https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizer = torch.optim.Adam(model.parameters(), lr=3e-5)
+    #optimizer = torch.optim.SDG(model.parameters(), lr=2e-4, momentum=0.9)
     #optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
-    epochs = 5
+    epochs = 10
     vali_losses = []
     train_losses = []
 
@@ -230,27 +225,24 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             loss = criterion(y_pred, y_batch)
             loss.backward()
             optimizer.step()
-
         
         with torch.no_grad():
             model.eval()
             y_pred = model.forward(X_train)
             loss = criterion(y_pred, y_train)
-            print(f"\n train loss {loss}")
+            print(f"\n train loss {100*loss}%")
             train_losses.append(loss)
 
             y_pred = model.forward(X_vali)
             loss = criterion(y_pred, y_vali)
-            print(f"\n vali loss {loss}")
+            print(f"\n vali loss {100*loss}%")
             vali_losses.append(loss)  
-             
+
         model.train()
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-')
-    plt.savefig("./task 3/train.png")
-    plt.clf()
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'b-')
-    plt.savefig("./task 3/vali.png")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-')
+    plt.savefig("./task 3/learning_curve.png")
     #TODO: plot cosmetics
     
     return model
@@ -295,7 +287,7 @@ if __name__ == '__main__':
     X, y = get_data(TRAIN_TRIPLETS)
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
 
-    np.random.seed(2)
+    np.random.seed(4)
     p = 0.8
     print("\npreparing train vali split")
     mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
