@@ -70,7 +70,7 @@ def modeling_and_prediction(X_train, y_train, X_test, kernels):
     X_train: matrix of floats, training input with 10 features
     y_train: array of floats, training output
     X_test: matrix of floats: dim = (100, ?), test input with 10 features
-    kernels: sklearn Kernel object, kernels of the Gaussian Process Regressor to be compared through cross-validation
+    kernels: list of sklearn Kernel objects, kernels of the Gaussian Process Regressor to be compared through cross-validation
 
     Returns
     ----------
