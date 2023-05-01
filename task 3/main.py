@@ -13,16 +13,21 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
+from sklearn.model_selection import train_test_split
 from matplotlib import pyplot as plt
 
 #TODO: general cosmetics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-learning_rate = 5e-4
-batches_size = 16
+
+learning_rate = 1e-4
+batches_size = 32
 num_neurons1 = 2000
 num_neurons2 = 2000
-num_epochs = 10
+
+num_epochs = 40
+
+num_data = 3000
 
 def generate_embeddings():
     """
@@ -43,7 +48,7 @@ def generate_embeddings():
     model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2) 
     model = torch.nn.Sequential(*(list(model.children())[:-1]))
     model.eval()
-    #TODO: read embedding size automatically from the pretrained model used
+
     embedding_size = 2048
     num_images = len(train_dataset)
     embeddings = np.zeros((num_images, embedding_size))
@@ -76,8 +81,12 @@ def get_data(file, train=True):
     """
     triplets = []
     with open(file) as f:
+        i=0
         for line in f:
             triplets.append(line)
+            i+=1
+            if i>num_data:
+                break
 
     # generate training data from triplets
     train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=None)
@@ -170,17 +179,25 @@ class Net(nn.Module):
         B = self.fc2(B)
         C = self.fc2(C)
 
-        A = F.normalize(A, dim=1, p=2)
-        B = F.normalize(B, dim=1, p=2)
-        C = F.normalize(C, dim=1, p=2)
+        #A = F.normalize(A, dim=1, p=2)
+        #B = F.normalize(B, dim=1, p=2)
+        #C = F.normalize(C, dim=1, p=2)
 
-        #delta_AB = F.cross_entropy(B, A, reduction='sum')
-        #delta_AC = F.cross_entropy(C, A, reduction='sum')
+        A = F.softmax(A, dim=1)
+        B = F.softmax(B, dim=1)
+        C = F.softmax(C, dim=1)
 
-        delta_AB = torch.sum(torch.square(A-B), dim=1)
-        delta_AC = torch.sum(torch.square(A-C), dim=1)
+        B = torch.log(B)
+        C = torch.log(C)
+        AB = -torch.sum(torch.mul(A,B),dim=1)
+        AC = -torch.sum(torch.mul(A,C),dim=1)
+        
+        x=AC-AB
 
-        x = delta_AC - delta_AB
+        #delta_AB = torch.sum(torch.square(A-B), dim=1)
+        #delta_AC = torch.sum(torch.square(A-C), dim=1)
+
+        #x = delta_AC - delta_AB
         x = F.sigmoid(x)
         
         return x
@@ -198,11 +215,8 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     model = Net()
     model.train()
     model.to(device)
-    
-    # TODO: After choosing the best model, train it on the whole training data.
 
-    criterion = torch.nn.BCELoss() #accuracy ausprobieren??
-    #TODO: stop normalizing the loss https://pytorch.org/docs/stable/generated/torch.nn.BCELoss.html
+    criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     #optimizer = torch.optim.SDG(model.parameters(), lr=2e-4, momentum=0.9)
     #optimizer = torch.optim.Adam(model.parameters(), lr=0.0001, weight_decay=1e-5)
@@ -229,30 +243,32 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
             accuracy = torch.sum(y_pred == torch.round(y_train))/y_train.size(0)
-            print(f"\n train loss {100*loss}%")
+            print(f"train loss {100*loss}%")
             train_losses.append(loss)
             train_accuracy.append(accuracy)
+            print(f"train accuracy {100*accuracy}%")
 
             y_pred = model.forward(X_vali)
             loss = criterion(y_pred, y_vali)
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
-            accuracy = torch.sum(y_pred == torch.roung(y_vali))/y_train.size(0)
-            print(f"\n vali loss {100*loss}%")
+            accuracy = torch.sum(y_pred == torch.round(y_vali))/y_train.size(0)
+            print(f"vali loss {100*loss}%")
             vali_losses.append(loss)
-            vali_accuracy.append(accuracy)  
+            vali_accuracy.append(accuracy)
+            print(f"train accuracy {100*accuracy}%")  
 
         model.train()
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train BCE")
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali BCE")
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_accuracy], 'b--', label="train accuracy")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'g--', label="vali accuracy")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_accuracy], 'g--', label="vali accuracy")
     plt.xlabel("epoch")
     plt.ylabel("Loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1}_{num_neurons2}_stand_b{batches_size}.png")
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1}_{num_neurons2}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
     
     return model
 
@@ -296,29 +312,20 @@ if __name__ == '__main__':
     X, y = get_data(TRAIN_TRIPLETS)
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
 
-    np.random.seed(6)
-    p = 0.8
-    p = 0.001
     print("\npreparing train vali split")
-    mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
-    mask_vali = [not i for i in mask_train]
-
-
-    X_train = X[mask_train, :]
-    y_train = y[mask_train]
-
-    X_vali = X[mask_vali, :]
-    y_vali = y[mask_vali]
-
+    p = 0.8
+    X_train, X_vali, y_train, y_vali = train_test_split(X, y, train_size=p, random_state=42)
 
     # Create data loaders for the training and testing data
+    print("\npreparing train vali loaders")
     train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=batches_size)
     test_loader = create_loader_from_np(X_test, train = False, batch_size=1000, shuffle=False)
 
     # define a model and train it
+    print("\nstart training:\n")
     model = train_model(train_loader, X_train=torch.from_numpy(X_train).type(torch.float), y_train=torch.from_numpy(y_train).type(torch.float),
                         X_vali=torch.from_numpy(X_vali).type(torch.float), y_vali=torch.from_numpy(y_vali).type(torch.float))
     
     # test the model on the test data
-    test_model(model, test_loader)
-    print("Results saved to results.txt")
+    #test_model(model, test_loader)
+    #print("Results saved to results.txt")
