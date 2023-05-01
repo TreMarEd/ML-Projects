@@ -22,12 +22,13 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 learning_rate = 1e-4
 batches_size = 32
-num_neurons1 = 2000
-num_neurons2 = 2000
+num_neurons1 = 6000
+num_neurons2 = 4000
+#num_neurons3 = 2000
 
-num_epochs = 40
+num_epochs = 10
 
-num_data = 3000
+num_data = 5000
 
 def generate_embeddings():
     """
@@ -154,6 +155,7 @@ class Net(nn.Module):
         super().__init__()
         self.fc1 = nn.Linear(2048, num_neurons1) #2048 is current embedding dimension
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
+        self.fc3 = nn.Linear(num_neurons2, num_neurons3)
         #self.a = nn.Parameter(torch.tensor(1.))
         
 
@@ -174,14 +176,14 @@ class Net(nn.Module):
         A = F.relu(self.fc1(A))
         B = F.relu(self.fc1(B))
         C = F.relu(self.fc1(C))
+
+        #A = F.relu(self.fc2(A))
+        #B = F.relu(self.fc2(B))
+        #C = F.relu(self.fc2(C))
                    
         A = self.fc2(A)
         B = self.fc2(B)
         C = self.fc2(C)
-
-        #A = F.normalize(A, dim=1, p=2)
-        #B = F.normalize(B, dim=1, p=2)
-        #C = F.normalize(C, dim=1, p=2)
 
         A = F.softmax(A, dim=1)
         B = F.softmax(B, dim=1)
@@ -189,15 +191,11 @@ class Net(nn.Module):
 
         B = torch.log(B)
         C = torch.log(C)
-        AB = -torch.sum(torch.mul(A,B),dim=1)
-        AC = -torch.sum(torch.mul(A,C),dim=1)
+        delta_AB = -torch.sum(torch.mul(A,B),dim=1)
+        delta_AC = -torch.sum(torch.mul(A,C),dim=1)
         
-        x=AC-AB
+        x = delta_AC - delta_AB
 
-        #delta_AB = torch.sum(torch.square(A-B), dim=1)
-        #delta_AC = torch.sum(torch.square(A-C), dim=1)
-
-        #x = delta_AC - delta_AB
         x = F.sigmoid(x)
         
         return x
@@ -223,11 +221,11 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     epochs = num_epochs
     vali_losses = []
     train_losses = []
-    vali_accuracy = []
-    train_accuracy = []
+    vali_accuracies = []
+    train_accuracies = []
 
     for epoch in range(epochs):
-        print(f'\nepoch: {epoch}')
+        print(f'--------EPOCH {epoch}--------')
             
         for [X_batch, y_batch] in train_loader:
             optimizer.zero_grad()
@@ -238,25 +236,28 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
         
         with torch.no_grad():
             model.eval()
+
             y_pred = model.forward(X_train)
-            loss = criterion(y_pred, y_train)
+            train_loss = criterion(y_pred, y_train)
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
-            accuracy = torch.sum(y_pred == torch.round(y_train))/y_train.size(0)
-            print(f"train loss {100*loss}%")
+            train_accuracy = torch.sum(y_pred == torch.round(y_train))/y_train.size(0)
             train_losses.append(loss)
-            train_accuracy.append(accuracy)
-            print(f"train accuracy {100*accuracy}%")
+            train_accuracies.append(train_accuracy)
+            
 
             y_pred = model.forward(X_vali)
-            loss = criterion(y_pred, y_vali)
+            vali_loss = criterion(y_pred, y_vali)
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
-            accuracy = torch.sum(y_pred == torch.round(y_vali))/y_train.size(0)
-            print(f"vali loss {100*loss}%")
+            vali_accuracy = torch.sum(y_pred == torch.round(y_vali))/y_train.size(0)
             vali_losses.append(loss)
-            vali_accuracy.append(accuracy)
-            print(f"train accuracy {100*accuracy}%")  
+            vali_accuracies.append(vali_accuracy)
+
+            print(f"train loss     {100*train_loss:.2f}%")
+            print(f"vali loss      {100*vali_loss:.2f}%")
+            print(f"train accuracy {100*train_accuracy:.2f}%")
+            print(f"vali accuracy  {100*vali_accuracy:.2f}%")  
 
         model.train()
     
@@ -268,7 +269,7 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     plt.ylabel("Loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1}_{num_neurons2}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
     
     return model
 
