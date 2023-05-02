@@ -1,7 +1,7 @@
-# TODO: explain the task
-# This serves as a template which will guide you through the implementation of this task.  It is advised
-# to first read the whole template and get a sense of the overall structure of the code before trying to fill in any of the TODO gaps
-# First, we import necessary libraries:
+# The following script solves project 3 of the 2023 Introduction to Machine Learning course at ETH. 10'000 pictures of dishes are 
+# provided. Given a triplet pictures of dishes (A,B,C) the goal is to predict whether the taste of A is more similar to B than C.
+# A training set of triplets is provided in the task.
+
 import numpy as np
 from torchvision import transforms
 from torch.utils.data import DataLoader, TensorDataset
@@ -17,31 +17,15 @@ from sklearn.model_selection import train_test_split
 from matplotlib import pyplot as plt
 from torchsummary import summary
 
-import torchvision.models as models
-
-# Download a pretrain
-"""
-alexnet = models.alexnet(pretrained=True)
-summary(alexnet, (3, 224, 224))
-alexnet.eval()
-alexnet_features = alexnet.features
-summary(alexnet_features, (3, 224, 224))
-"""
-# Set it to evaluation mode, i.e. turn off Dropout
-
-#TODO: general cosmetics
-
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 embedding_size = 9216
 learning_rate = 1e-4
-batches_size = 32
-num_neurons1 = 400
-num_neurons2 = 200
-num_neurons3 = 200
-
-num_epochs = 10
-
+batches_size = 16
+num_neurons1 = 512
+num_neurons2 = 256
+num_neurons3 = 128
+num_epochs = 50
 num_data = 10000
 
 def generate_embeddings():
@@ -49,7 +33,6 @@ def generate_embeddings():
     Transform, resize and normalize the images and then use a pretrained model to extract 
     the embeddings.
     """
-
     #train_transforms = transforms.Compose([transforms.ToTensor(), ResNet50_Weights.IMAGENET1K_V2.transforms()])
     train_transforms = transforms.Compose([transforms.ToTensor(), AlexNet_Weights.IMAGENET1K_V1.transforms()])
     train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=train_transforms)
@@ -106,8 +89,8 @@ def get_data(file, train=True):
     embeddings = np.load('./task 3/dataset/embeddings.npy')
 
     #scaler = MinMaxScaler()
-    #scaler = StandardScaler()
-    #embeddings = scaler.fit_transform(embeddings)
+    scaler = StandardScaler()
+    embeddings = scaler.fit_transform(embeddings)
 
     file_to_embedding = {}
     for i in range(len(filenames)):
@@ -132,7 +115,6 @@ def get_data(file, train=True):
 
     return X, y
 
-# Hint: adjust batch_size and num_workers to your PC configuration, so that you don't run out of memory
 def create_loader_from_np(X, y = None, train = True, batch_size=30, shuffle=True, num_workers = 0):
     """
     Create a torch.utils.data.DataLoader object from numpy arrays containing the data.
@@ -181,7 +163,6 @@ class Net(nn.Module):
         B = x[:,embedding_size:(2*embedding_size)]
         C = x[:,(2*embedding_size):(3*embedding_size)]
 
-        #with reul?
         A = F.relu(self.fc1(A))
         B = F.relu(self.fc1(B))
         C = F.relu(self.fc1(C))
@@ -245,7 +226,6 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
         
         with torch.no_grad():
             model.eval()
-
             y_pred = model.forward(X_train)
             train_loss = criterion(y_pred, y_train)
             y_pred[y_pred >= 0.5] = 1
@@ -254,12 +234,11 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             train_losses.append(train_loss)
             train_accuracies.append(train_accuracy)
             
-
             y_pred = model.forward(X_vali)
             vali_loss = criterion(y_pred, y_vali)
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
-            vali_accuracy = torch.sum(y_pred == torch.round(y_vali))/y_train.size(0)
+            vali_accuracy = torch.sum(y_pred == torch.round(y_vali))/y_vali.size(0)
             vali_losses.append(vali_loss)
             vali_accuracies.append(vali_accuracy)
 
@@ -279,7 +258,7 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     plt.ylabel("Loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_{num_neurons3}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_{num_neurons3/1000}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
     
     return model
 
