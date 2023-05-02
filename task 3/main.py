@@ -11,24 +11,38 @@ from torchvision import transforms
 import torchvision.datasets as datasets
 import torch.nn as nn
 import torch.nn.functional as F
-from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights
+from torchvision.models import resnet50, ResNet50_Weights, resnet18, ResNet18_Weights, alexnet, AlexNet_Weights
 from sklearn.preprocessing import MinMaxScaler, StandardScaler
 from sklearn.model_selection import train_test_split
 from matplotlib import pyplot as plt
+from torchsummary import summary
+
+import torchvision.models as models
+
+# Download a pretrain
+"""
+alexnet = models.alexnet(pretrained=True)
+summary(alexnet, (3, 224, 224))
+alexnet.eval()
+alexnet_features = alexnet.features
+summary(alexnet_features, (3, 224, 224))
+"""
+# Set it to evaluation mode, i.e. turn off Dropout
 
 #TODO: general cosmetics
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
+embedding_size = 9216
 learning_rate = 1e-4
 batches_size = 32
-num_neurons1 = 6000
-num_neurons2 = 4000
-#num_neurons3 = 2000
+num_neurons1 = 400
+num_neurons2 = 200
+num_neurons3 = 200
 
 num_epochs = 10
 
-num_data = 5000
+num_data = 10000
 
 def generate_embeddings():
     """
@@ -36,24 +50,21 @@ def generate_embeddings():
     the embeddings.
     """
 
-    train_transforms = transforms.Compose([transforms.ToTensor(), ResNet50_Weights.IMAGENET1K_V2.transforms()])
+    #train_transforms = transforms.Compose([transforms.ToTensor(), ResNet50_Weights.IMAGENET1K_V2.transforms()])
+    train_transforms = transforms.Compose([transforms.ToTensor(), AlexNet_Weights.IMAGENET1K_V1.transforms()])
     train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=train_transforms)
 
-    # Hint: adjust batch_size and num_workers to your PC configuration, so that you don't run out of memory
     batch_size = 50
-    batches = int(10000/batch_size)
-    train_loader = DataLoader(dataset=train_dataset, batch_size=50, shuffle=False, pin_memory=True, num_workers=0)
+    train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=0)
 
-    # define pretrained model, remove last layer and activate evaluation
-    #TODO: try resnet152
-    model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2) 
-    model = torch.nn.Sequential(*(list(model.children())[:-1]))
+    model = alexnet(weights=AlexNet_Weights.IMAGENET1K_V1).features
+    #model = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2) 
+    #model = torch.nn.Sequential(*(list(model.children())[:-1]))
     model.eval()
-
-    embedding_size = 2048
+    
     num_images = len(train_dataset)
+    batches = int(num_images/batch_size)
     embeddings = np.zeros((num_images, embedding_size))
-
     l = 0
     with torch.no_grad():
         for k in range(batches):
@@ -63,11 +74,10 @@ def generate_embeddings():
             output = model(features)
 
             for j in range(batch_size):
-                embeddings[l, :] = np.squeeze(output[j])
+                embeddings[l, :] = torch.flatten(output[j])
                 l += 1
     
     np.save('./task 3/dataset/embeddings.npy', embeddings)
-
 
 
 def get_data(file, train=True):
@@ -96,8 +106,8 @@ def get_data(file, train=True):
     embeddings = np.load('./task 3/dataset/embeddings.npy')
 
     #scaler = MinMaxScaler()
-    scaler = StandardScaler()
-    embeddings = scaler.fit_transform(embeddings)
+    #scaler = StandardScaler()
+    #embeddings = scaler.fit_transform(embeddings)
 
     file_to_embedding = {}
     for i in range(len(filenames)):
@@ -153,10 +163,9 @@ class Net(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc1 = nn.Linear(2048, num_neurons1) #2048 is current embedding dimension
+        self.fc1 = nn.Linear(embedding_size, num_neurons1)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         self.fc3 = nn.Linear(num_neurons2, num_neurons3)
-        #self.a = nn.Parameter(torch.tensor(1.))
         
 
     def forward(self, x):
@@ -168,22 +177,22 @@ class Net(nn.Module):
         output: x: torch.Tensor, the output of the model
         """
     
-        A = x[:,0:2048]
-        B = x[:,2048:(2*2048)]
-        C = x[:,(2*2048):(3*2048)]
+        A = x[:,:embedding_size]
+        B = x[:,embedding_size:(2*embedding_size)]
+        C = x[:,(2*embedding_size):(3*embedding_size)]
 
         #with reul?
         A = F.relu(self.fc1(A))
         B = F.relu(self.fc1(B))
         C = F.relu(self.fc1(C))
 
-        #A = F.relu(self.fc2(A))
-        #B = F.relu(self.fc2(B))
-        #C = F.relu(self.fc2(C))
+        A = F.relu(self.fc2(A))
+        B = F.relu(self.fc2(B))
+        C = F.relu(self.fc2(C))
                    
-        A = self.fc2(A)
-        B = self.fc2(B)
-        C = self.fc2(C)
+        A = self.fc3(A)
+        B = self.fc3(B)
+        C = self.fc3(C)
 
         A = F.softmax(A, dim=1)
         B = F.softmax(B, dim=1)
@@ -242,7 +251,7 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
             train_accuracy = torch.sum(y_pred == torch.round(y_train))/y_train.size(0)
-            train_losses.append(loss)
+            train_losses.append(train_loss)
             train_accuracies.append(train_accuracy)
             
 
@@ -251,7 +260,7 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
             y_pred[y_pred >= 0.5] = 1
             y_pred[y_pred < 0.5] = 0
             vali_accuracy = torch.sum(y_pred == torch.round(y_vali))/y_train.size(0)
-            vali_losses.append(loss)
+            vali_losses.append(vali_loss)
             vali_accuracies.append(vali_accuracy)
 
             print(f"train loss     {100*train_loss:.2f}%")
@@ -263,13 +272,14 @@ def train_model(train_loader, X_train, y_train, X_vali, y_vali):
     
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train BCE")
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali BCE")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_accuracy], 'b--', label="train accuracy")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_accuracy], 'g--', label="vali accuracy")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_accuracies], 'b--', label="train accuracy")
+    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_accuracies], 'g--', label="vali accuracy")
+
     plt.xlabel("epoch")
     plt.ylabel("Loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_{num_neurons3}_stand_b{batches_size}_partial_data{int(num_data/1000)}k.png")
     
     return model
 
