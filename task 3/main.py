@@ -21,20 +21,18 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 #alexnet embedding size
 embedding_size = 9216
+#embedding_size = 2048
 learning_rate = 1e-4
 #mini batch size
 batches_size = 32
 #number of neurons of layer i
 num_neurons1 = 512
 num_neurons2 = 256
-num_neurons3 = 128
 #training epochs
-num_epochs = 50
-num_data = 60000
+num_epochs = 10
+#num_data = 60000
 #dropout rate
 do = 0
-
-#num_data = 60000
 
 def generate_embeddings():
     """
@@ -47,19 +45,16 @@ def generate_embeddings():
     batch_size = 50
     train_loader = DataLoader(dataset=train_dataset, batch_size=batch_size, shuffle=False, pin_memory=True, num_workers=0)
 
-    model = alexnet(weights=AlexNet_Weights.IMAGENET1K_V1).features
-    model.eval()
+    alexnet_model = alexnet(weights=AlexNet_Weights.IMAGENET1K_V1).features
+    alexnet_model.eval()
     
     num_images = len(train_dataset)
     batches = int(num_images/batch_size)
     embeddings = np.zeros((num_images, embedding_size))
     l = 0
     with torch.no_grad():
-        for k in range(batches):
-            print("\nworking on batch ", str(k), "\n")
-            i = iter(train_loader)
-            features, labels = next(i)
-            output = model(features)
+        for features, labels in train_loader:
+            output = alexnet_model(features)
 
             for j in range(batch_size):
                 embeddings[l, :] = torch.flatten(output[j])
@@ -80,12 +75,13 @@ def get_data(file, train=True):
     """
     triplets = []
     with open(file) as f:
-        i=0
+        #i=1
         for line in f:
             triplets.append(line)
-            i+=1
-            if i-1>num_data:
-                break
+            #if train:
+                #i+=1
+                #if i-1>=num_data:
+                    #break
 
     # generate training data from triplets
     train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=None)
@@ -94,8 +90,8 @@ def get_data(file, train=True):
     embeddings = np.load('./task 3/dataset/embeddings.npy')
 
     #scaler = MinMaxScaler()
-    #scaler = StandardScaler()
-    #embeddings = scaler.fit_transform(embeddings)
+    scaler = StandardScaler()
+    embeddings = scaler.fit_transform(embeddings)
 
     file_to_embedding = {}
     for i in range(len(filenames)):
@@ -105,10 +101,23 @@ def get_data(file, train=True):
     y = []
 
     # use the individual embeddings to generate the features and labels for triplets
-    for t in triplets:
-        emb = [file_to_embedding[a] for a in t.split()]
-        X.append(np.hstack([emb[0], emb[1], emb[2]]))
-        y.append(1)
+    if train:
+        alternator = 0
+        for t in triplets:
+            emb = [file_to_embedding[a] for a in t.split()]
+            if alternator % 2 == 0:
+                X.append(np.hstack([emb[0], emb[1], emb[2]]))
+                y.append(1)
+            else:
+                X.append(np.hstack([emb[0], emb[2], emb[1]]))
+                y.append(0)
+            alternator += 1
+    else:
+        for t in triplets:
+            emb = [file_to_embedding[a] for a in t.split()]
+            X.append(np.hstack([emb[0], emb[1], emb[2]]))
+            y.append(1)
+
 
         # Generating negative samples (data augmentation)
         #if train:
@@ -120,7 +129,7 @@ def get_data(file, train=True):
 
     return X, y
 
-def create_loader_from_np(X, y = None, train = True, batch_size=30, shuffle=True, num_workers = 0):
+def create_loader_from_np(X, y = None, train = True, batch_size=batches_size, shuffle=False, num_workers = 0):
     """
     Create a torch.utils.data.DataLoader object from numpy arrays containing the data.
 
@@ -154,7 +163,7 @@ class Net(nn.Module):
         #self.do1 = nn.Dropout(do)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         #self.do2 = nn.Dropout(do)
-        self.fc3 = nn.Linear(num_neurons2, num_neurons3)
+        #self.fc3 = nn.Linear(num_neurons2, num_neurons3)
         #self.do3 = nn.Dropout(do)
         
 
@@ -179,16 +188,13 @@ class Net(nn.Module):
         #B = self.do1(B)
         #C = self.do1(C)
 
-        A = F.relu(self.fc2(A))
-        B = F.relu(self.fc2(B))
-        C = F.relu(self.fc2(C))
         #A = self.do2(A)
         #B = self.do2(B)
         #C = self.do2(C)  
 
-        A = self.fc3(A)
-        B = self.fc3(B)
-        C = self.fc3(C)
+        A = self.fc2(A)
+        B = self.fc2(B)
+        C = self.fc2(C)
         #A = self.do3(A)
         #B = self.do3(B)
         #C = self.do3(C)
@@ -243,6 +249,7 @@ def train_model(train_loader):
             optimizer.zero_grad()
             #y_pred = model.forward(X_train[start:end, :])
             #loss = criterion(y_pred, y_train[start:end])
+            X_batch = X_batch.to(device)
             y_pred = model.forward(X_batch)
             loss = criterion(y_pred, y_batch)
             loss.backward()
@@ -285,8 +292,9 @@ def train_model(train_loader):
     plt.ylabel("loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_{num_neurons3/1000}_b{batches_size}_partial_{int(num_data/1000)}k_do{do}.png")
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{do}.png")
     
+    model.eval()
     return model
 
 def test_model(model, loader):
@@ -324,11 +332,10 @@ if __name__ == '__main__':
     if(os.path.exists('./task 3/dataset/embeddings.npy') == False):
         generate_embeddings()
 
-    # load the training and testing data
-    print("\nloading data")
+    # load the training data
+    print("\nloading training data")
     X, y = get_data(TRAIN_TRIPLETS)
-    X_test, _ = get_data(TEST_TRIPLETS, train=False)
-
+    
     print("\npreparing train vali split")
     #np.random.seed(2)
     p = 0.8
@@ -343,9 +350,8 @@ if __name__ == '__main__':
     #y_vali = y[mask_vali]
     
     # Create data loaders for the training and testing data
-    print("\npreparing loaders")
+    print("\npreparing train loader")
     train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=batches_size)
-    test_loader = create_loader_from_np(X_test, train = False, batch_size=1000, shuffle=False)
 
     print("\nstart training:\n")
     X_train=torch.from_numpy(X_train).type(torch.float)
@@ -356,5 +362,9 @@ if __name__ == '__main__':
     model = train_model(train_loader)
     
     # test the model on the test data
+    print("\nloading test data")
+    X_test, _ = get_data(TEST_TRIPLETS, train=False)
+    print("\npreparing test loader") 
+    test_loader = create_loader_from_np(X_test, train = False, batch_size=1000, shuffle=False)
     test_model(model, test_loader)
     print("Results saved to results.txt")
