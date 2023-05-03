@@ -29,7 +29,7 @@ batches_size = 32
 num_neurons1 = 512
 num_neurons2 = 256
 #training epochs
-num_epochs = 10
+num_epochs = 3
 #num_data = 60000
 #dropout rate
 do = 0
