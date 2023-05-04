@@ -24,14 +24,12 @@ embedding_size = 9216
 learning_rate = 1e-4
 batches_size = 32
 # number of neurons of layer i
-num_neurons1 = 600
-num_neurons2 = 300
+num_neurons1 = 500
+num_neurons2 = 250
 # training epochs
-num_epochs = 3
-# dropout rate
-do = 0
+num_epochs = 6
 # boolean stating whether to perform training/vali split
-vali = False
+vali = True
 
 
 def generate_embeddings():
@@ -145,13 +143,14 @@ class Net(nn.Module):
     The model class, which defines our classifier.
     """
 
-    def __init__(self):
+    def __init__(self, dropout_rate1, dropout_rate2):
         """
         The constructor of the model.
         """
         super().__init__()
+        self.do1 = nn.Dropout(dropout_rate1)
         self.fc1 = nn.Linear(embedding_size, num_neurons1)
-        #self.do1 = nn.Dropout(do)
+        self.do1 = nn.Dropout(dropout_rate2)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
 
     def forward(self, x):
@@ -168,12 +167,17 @@ class Net(nn.Module):
         B = x[:, embedding_size:(2*embedding_size)]
         C = x[:, (2*embedding_size):(3*embedding_size)]
 
+        A = self.do1(A)
+        B = self.do1(B)
+        C = self.do1(C)
+
         A = F.relu(self.fc1(A))
         B = F.relu(self.fc1(B))
         C = F.relu(self.fc1(C))
-        #A = self.do1(A)
-        #B = self.do1(B)
-        #C = self.do1(C)
+
+        A = self.do2(A)
+        B = self.do2(B)
+        C = self.do2(C)
 
         A = self.fc2(A)
         B = self.fc2(B)
@@ -194,7 +198,7 @@ class Net(nn.Module):
         return x
 
 
-def train_model(train_loader, vali):
+def train_model(train_loader, model, plt_string, vali):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
@@ -203,7 +207,6 @@ def train_model(train_loader, vali):
 
     output: model: torch.nn.Module, the trained model
     """
-    model = Net()
     model.train()
     model.to(device)
 
@@ -270,7 +273,7 @@ def train_model(train_loader, vali):
     plt.ylabel("loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{do}_epochs{num_epochs}.png")
+    plt.savefig(f"./task 3/lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{plt_string}_epochs{num_epochs}_vali{vali}.png")
 
     model.eval()
     return model
@@ -332,14 +335,20 @@ if __name__ == '__main__':
         X_vali = torch.from_numpy(X_vali).type(torch.float)
         y_vali = torch.from_numpy(y_vali).type(torch.float)
 
-    model = train_model(train_loader, vali=vali)
+    model_15_0 = train_model(train_loader, Net(0.15, 0.), "15_0", vali=vali)
+    model_25_0 = train_model(train_loader, Net(0.25, 0.), "25_0", vali=vali)
+    model_0_15 = train_model(train_loader, Net(0., 0.15), "0_15", vali=vali)
+    model_0_25 = train_model(train_loader, Net(0, 0.25), "0_25", vali=vali)
+    model_15_15 = train_model(train_loader, Net(0.15, 0.15), "15_15", vali=vali)
+    model_25_25 = train_model(train_loader, Net(0.25, 0.25), "25_25", vali=vali)
 
-    # test the model on the test data
-    print("\nloading test data")
-    X_test, _ = get_data(TEST_TRIPLETS, train=False)
-
-    print("\npreparing test loader")
-    test_loader = create_loader_from_np(X_test, train=False, batch_size=1000, shuffle=False)
-    print("\ngenerating results.txt")
-    test_model(model, test_loader)
+    if not vali:
+        # test the model on the test data
+        print("\nloading test data")
+        X_test, _ = get_data(TEST_TRIPLETS, train=False)
+        
+        print("\npreparing test loader")
+        test_loader = create_loader_from_np(X_test, train=False, batch_size=1000, shuffle=False)
+        print("\ngenerating results.txt")
+        test_model(model_15_0, test_loader)
 
