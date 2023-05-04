@@ -1,4 +1,4 @@
-# The following script solves project 3 of the 2023 Introduction to Machine Learning course at ETH. 10'000 pictures of dishes are 
+# The following script solves project 3 of the 2023 Introduction to Machine Learning course at ETH. 10'000 pictures of dishes are
 # provided. Given a triplet pictures of dishes (A,B,C) the goal is to predict whether the taste of A is more similar to B than C.
 # A training set of triplets is provided in the task.
 
@@ -19,20 +19,20 @@ import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
-#alexnet embedding size
+# alexnet embedding size
 embedding_size = 9216
-#embedding_size = 2048
 learning_rate = 1e-4
-#mini batch size
 batches_size = 32
-#number of neurons of layer i
-num_neurons1 = 512
-num_neurons2 = 256
-#training epochs
+# number of neurons of layer i
+num_neurons1 = 600
+num_neurons2 = 300
+# training epochs
 num_epochs = 3
-#num_data = 60000
-#dropout rate
+# dropout rate
 do = 0
+# boolean stating whether to perform training/vali split
+vali = False
+
 
 def generate_embeddings():
     """
@@ -47,7 +47,7 @@ def generate_embeddings():
 
     alexnet_model = alexnet(weights=AlexNet_Weights.IMAGENET1K_V1).features
     alexnet_model.eval()
-    
+
     num_images = len(train_dataset)
     batches = int(num_images/batch_size)
     embeddings = np.zeros((num_images, embedding_size))
@@ -59,7 +59,7 @@ def generate_embeddings():
             for j in range(batch_size):
                 embeddings[l, :] = torch.flatten(output[j])
                 l += 1
-    
+
     np.save('./task 3/dataset/embeddings.npy', embeddings)
 
 
@@ -75,21 +75,17 @@ def get_data(file, train=True):
     """
     triplets = []
     with open(file) as f:
-        #i=1
         for line in f:
             triplets.append(line)
-            #if train:
-                #i+=1
-                #if i-1>=num_data:
-                    #break
 
     # generate training data from triplets
-    train_dataset = datasets.ImageFolder(root="./task 3/dataset/", transform=None)
-    filenames = [s[0].split('/')[-1].replace('.jpg', '') for s in train_dataset.samples]
+    train_dataset = datasets.ImageFolder(
+        root="./task 3/dataset/", transform=None)
+    filenames = [s[0].split('/')[-1].replace('.jpg', '')
+                 for s in train_dataset.samples]
 
     embeddings = np.load('./task 3/dataset/embeddings.npy')
 
-    #scaler = MinMaxScaler()
     scaler = StandardScaler()
     embeddings = scaler.fit_transform(embeddings)
 
@@ -118,30 +114,24 @@ def get_data(file, train=True):
             X.append(np.hstack([emb[0], emb[1], emb[2]]))
             y.append(1)
 
-
-        # Generating negative samples (data augmentation)
-        #if train:
-            #X.append(np.hstack([emb[0], emb[2], emb[1]]))
-            #y.append(0)
-
     X = np.vstack(X)
     y = np.hstack(y)
 
     return X, y
 
-def create_loader_from_np(X, y = None, train = True, batch_size=batches_size, shuffle=False, num_workers = 0):
+
+def create_loader_from_np(X, y=None, train=True, batch_size=batches_size, shuffle=False, num_workers=0):
     """
     Create a torch.utils.data.DataLoader object from numpy arrays containing the data.
 
     input: X: numpy array, the features
            y: numpy array, the labels
-    
+
     output: loader: torch.data.util.DataLoader, the object containing the data
     """
     if train:
-        dataset = TensorDataset(torch.from_numpy(X).type(torch.float), 
-                                torch.from_numpy(y).type(torch.float))
-        
+        dataset = TensorDataset(torch.from_numpy(X).type(torch.float), torch.from_numpy(y).type(torch.float))
+
     else:
         dataset = TensorDataset(torch.from_numpy(X).type(torch.float))
 
@@ -154,6 +144,7 @@ class Net(nn.Module):
     """
     The model class, which defines our classifier.
     """
+
     def __init__(self):
         """
         The constructor of the model.
@@ -162,10 +153,6 @@ class Net(nn.Module):
         self.fc1 = nn.Linear(embedding_size, num_neurons1)
         #self.do1 = nn.Dropout(do)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
-        #self.do2 = nn.Dropout(do)
-        #self.fc3 = nn.Linear(num_neurons2, num_neurons3)
-        #self.do3 = nn.Dropout(do)
-        
 
     def forward(self, x):
         """
@@ -176,10 +163,10 @@ class Net(nn.Module):
         output: x: torch.Tensor, the output of the model
         """
 
-        #classify each separate dish
-        A = x[:,:embedding_size]
-        B = x[:,embedding_size:(2*embedding_size)]
-        C = x[:,(2*embedding_size):(3*embedding_size)]
+        # classify each separate dish
+        A = x[:, :embedding_size]
+        B = x[:, embedding_size:(2*embedding_size)]
+        C = x[:, (2*embedding_size):(3*embedding_size)]
 
         A = F.relu(self.fc1(A))
         B = F.relu(self.fc1(B))
@@ -188,40 +175,32 @@ class Net(nn.Module):
         #B = self.do1(B)
         #C = self.do1(C)
 
-        #A = self.do2(A)
-        #B = self.do2(B)
-        #C = self.do2(C)  
-
         A = self.fc2(A)
         B = self.fc2(B)
         C = self.fc2(C)
-        #A = self.do3(A)
-        #B = self.do3(B)
-        #C = self.do3(C)
 
         A = F.softmax(A, dim=1)
         B = F.softmax(B, dim=1)
         C = F.softmax(C, dim=1)
 
-        # compute cross entropy on classifier distributions
+        # compute cross entropy on classifier distributions to measure dissimilarities of the classifications
         B = torch.log(B)
         C = torch.log(C)
-        delta_AB = -torch.sum(torch.mul(A,B),dim=1)
-        delta_AC = -torch.sum(torch.mul(A,C),dim=1)
-        
-        # use cross entropy as dissimilarity measure
+        delta_AB = -torch.sum(torch.mul(A, B), dim=1)
+        delta_AC = -torch.sum(torch.mul(A, C), dim=1)
+
         x = delta_AC - delta_AB
         x = F.sigmoid(x)
         return x
-        
 
-def train_model(train_loader):
+
+def train_model(train_loader, vali):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
 
     input: train_loader: torch.data.util.DataLoader, the object containing the training data
-    
+
     output: model: torch.nn.Module, the trained model
     """
     model = Net()
@@ -231,7 +210,6 @@ def train_model(train_loader):
     criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
     epochs = num_epochs
-    #num_batches = int(y_train.size(dim=0)/batches_size)+1
 
     vali_losses = []
     train_losses = []
@@ -242,19 +220,14 @@ def train_model(train_loader):
         print(f'--------EPOCH {epoch}--------')
         tic = time.perf_counter()
 
-        #for i in range(num_batches):
         for [X_batch, y_batch] in train_loader:
-            #start = i * batches_size
-            #end = (i + 1) * batches_size
             optimizer.zero_grad()
-            #y_pred = model.forward(X_train[start:end, :])
-            #loss = criterion(y_pred, y_train[start:end])
             X_batch = X_batch.to(device)
             y_pred = model.forward(X_batch)
             loss = criterion(y_pred, y_batch)
             loss.backward()
             optimizer.step()
-        
+
         with torch.no_grad():
             model.eval()
             y_pred = model.forward(X_train)
@@ -264,38 +237,44 @@ def train_model(train_loader):
             train_accuracy = torch.sum(y_pred == torch.round(y_train))/y_train.size(0)
             train_losses.append(train_loss)
             train_accuracies.append(train_accuracy)
-            
-            y_pred = model.forward(X_vali)
-            vali_loss = criterion(y_pred, y_vali)
-            y_pred[y_pred >= 0.5] = 1
-            y_pred[y_pred < 0.5] = 0
-            vali_accuracy = torch.sum(y_pred == torch.round(y_vali))/y_vali.size(0)
-            vali_losses.append(vali_loss)
-            vali_accuracies.append(vali_accuracy)
+
+            if vali:
+                y_pred = model.forward(X_vali)
+                vali_loss = criterion(y_pred, y_vali)
+                y_pred[y_pred >= 0.5] = 1
+                y_pred[y_pred < 0.5] = 0
+                vali_accuracy = torch.sum(y_pred == torch.round(y_vali))/y_vali.size(0)
+                vali_losses.append(vali_loss)
+                vali_accuracies.append(vali_accuracy)
 
             print(f"train loss       {100*train_loss:.2f}%")
-            print(f"vali loss        {100*vali_loss:.2f}%")
             print(f"train accuracy   {100*train_accuracy:.2f}%")
-            print(f"vali accuracy    {100*vali_accuracy:.2f}%")  
+
+            if vali:
+                print(f"vali loss        {100*vali_loss:.2f}%")
+                print(f"vali accuracy    {100*vali_accuracy:.2f}%")
 
             toc = time.perf_counter()
             print(f"elapsed minutes: {(toc-tic)/60:.1f}")
 
         model.train()
-    
+
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train BCE")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali BCE")
     axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_accuracies], 'b--', label="train accuracy")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_accuracies], 'g--', label="vali accuracy")
+
+    if vali:
+        axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali BCE")
+        axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_accuracies], 'g--', label="vali accuracy")
 
     plt.xlabel("epoch")
     plt.ylabel("loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{do}.png")
-    
+    plt.savefig(f"./task 3/learning_curve_lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{do}_epochs{num_epochs}.png")
+
     model.eval()
     return model
+
 
 def test_model(model, loader):
     """
@@ -304,14 +283,13 @@ def test_model(model, loader):
 
     input: model: torch.nn.Module, the trained model
            loader: torch.data.util.DataLoader, the object containing the testing data
-        
+
     output: None, the function saves the predictions to a results.txt file
     """
     model.eval()
     predictions = []
 
-    # Iterate over the test data
-    with torch.no_grad(): # We don't need to compute gradients for testing
+    with torch.no_grad():
         for [x_batch] in loader:
             x_batch = x_batch.to(device)
             predicted = model(x_batch)
@@ -334,37 +312,34 @@ if __name__ == '__main__':
 
     # load the training data
     print("\nloading training data")
-    X, y = get_data(TRAIN_TRIPLETS)
-    
+    X_train, y_train = get_data(TRAIN_TRIPLETS)
+
     print("\npreparing train vali split")
-    #np.random.seed(2)
-    p = 0.8
-    X_train, X_vali, y_train, y_vali = train_test_split(X, y, train_size=p, random_state=42)
-    #mask_train = [bool(np.random.binomial(1, p)) for i in range(np.shape(X)[0])]
-    #mask_vali = [not i for i in mask_train]
 
-    #X_train = X[mask_train, :]
-    #y_train = y[mask_train]
+    if vali:
+        p = 0.8
+        X_train, X_vali, y_train, y_vali = train_test_split(X_train, y_train, train_size=p, random_state=42)
 
-    #X_vali = X[mask_vali, :]
-    #y_vali = y[mask_vali]
-    
     # Create data loaders for the training and testing data
     print("\npreparing train loader")
-    train_loader = create_loader_from_np(X_train, y_train, train = True, batch_size=batches_size)
+    train_loader = create_loader_from_np(X_train, y_train, train=True, batch_size=batches_size)
 
     print("\nstart training:\n")
-    X_train=torch.from_numpy(X_train).type(torch.float)
-    y_train=torch.from_numpy(y_train).type(torch.float)
-    X_vali=torch.from_numpy(X_vali).type(torch.float)
-    y_vali=torch.from_numpy(y_vali).type(torch.float)
+    X_train = torch.from_numpy(X_train).type(torch.float)
+    y_train = torch.from_numpy(y_train).type(torch.float)
 
-    model = train_model(train_loader)
-    
+    if vali:
+        X_vali = torch.from_numpy(X_vali).type(torch.float)
+        y_vali = torch.from_numpy(y_vali).type(torch.float)
+
+    model = train_model(train_loader, vali=vali)
+
     # test the model on the test data
     print("\nloading test data")
     X_test, _ = get_data(TEST_TRIPLETS, train=False)
-    print("\npreparing test loader") 
-    test_loader = create_loader_from_np(X_test, train = False, batch_size=1000, shuffle=False)
+
+    print("\npreparing test loader")
+    test_loader = create_loader_from_np(X_test, train=False, batch_size=1000, shuffle=False)
+    print("\ngenerating results.txt")
     test_model(model, test_loader)
-    print("Results saved to results.txt")
+
