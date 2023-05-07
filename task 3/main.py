@@ -1,6 +1,6 @@
 # The following script solves project 3 of the 2023 Introduction to Machine Learning course at ETH. 10'000 pictures of dishes are
 # provided. Given a triplet pictures of dishes (A,B,C) the goal is to predict whether the taste of A is more similar to B than C.
-# A training set of triplets is provided in the task.
+# A labeled training set of triplets is provided in the task.
 
 import numpy as np
 from torchvision import transforms
@@ -18,7 +18,6 @@ from matplotlib import pyplot as plt
 import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-
 # alexnet embedding size
 embedding_size = 9216
 learning_rate = 1e-4
@@ -26,10 +25,8 @@ batches_size = 32
 # number of neurons of layer i
 num_neurons1 = 500
 num_neurons2 = 250
-# training epochs
-num_epochs = 6
-# boolean stating whether to perform training/vali split
-vali = True
+# boolean stating whether to perform training/vali split or to produce productive results on entire dataset
+vali = False
 
 
 def generate_embeddings():
@@ -47,8 +44,8 @@ def generate_embeddings():
     alexnet_model.eval()
 
     num_images = len(train_dataset)
-    batches = int(num_images/batch_size)
     embeddings = np.zeros((num_images, embedding_size))
+
     l = 0
     with torch.no_grad():
         for features, labels in train_loader:
@@ -150,8 +147,9 @@ class Net(nn.Module):
         super().__init__()
         self.do1 = nn.Dropout(dropout_rate1)
         self.fc1 = nn.Linear(embedding_size, num_neurons1)
-        self.do1 = nn.Dropout(dropout_rate2)
+        self.do2 = nn.Dropout(dropout_rate2)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
+
 
     def forward(self, x):
         """
@@ -170,7 +168,6 @@ class Net(nn.Module):
         A = self.do1(A)
         B = self.do1(B)
         C = self.do1(C)
-
         A = F.relu(self.fc1(A))
         B = F.relu(self.fc1(B))
         C = F.relu(self.fc1(C))
@@ -178,7 +175,6 @@ class Net(nn.Module):
         A = self.do2(A)
         B = self.do2(B)
         C = self.do2(C)
-
         A = self.fc2(A)
         B = self.fc2(B)
         C = self.fc2(C)
@@ -198,7 +194,7 @@ class Net(nn.Module):
         return x
 
 
-def train_model(train_loader, model, plt_string, vali):
+def train_model(train_loader, model, epochs, plt_string, vali):
     """
     The training procedure of the model; it accepts the training data, defines the model 
     and then trains it.
@@ -207,12 +203,13 @@ def train_model(train_loader, model, plt_string, vali):
 
     output: model: torch.nn.Module, the trained model
     """
+    print(f"\nTRAINING {plt_string}\n")
+
     model.train()
     model.to(device)
 
     criterion = torch.nn.BCELoss()
     optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate)
-    epochs = num_epochs
 
     vali_losses = []
     train_losses = []
@@ -273,13 +270,13 @@ def train_model(train_loader, model, plt_string, vali):
     plt.ylabel("loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{plt_string}_epochs{num_epochs}_vali{vali}.png")
-
+    plt.savefig(f"./task 3/lr{learning_rate}_N{num_neurons1/1000}_{num_neurons2/1000}_b{batches_size}_do{plt_string}_epochs{epochs}_vali{vali}.png")
+    plt.clf()
     model.eval()
     return model
 
 
-def test_model(model, loader):
+def test_model(model, plt_name, loader):
     """
     The testing procedure of the model; it accepts the testing data and the trained model and 
     then tests the model on it.
@@ -302,7 +299,7 @@ def test_model(model, loader):
             predicted[predicted < 0.5] = 0
             predictions.append(predicted)
         predictions = np.hstack(predictions)
-    np.savetxt("./task 3/results.txt", predictions, fmt='%i')
+    np.savetxt(f"./task 3/results_{plt_name}.txt", predictions, fmt='%i')
 
 
 if __name__ == '__main__':
@@ -317,13 +314,11 @@ if __name__ == '__main__':
     print("\nloading training data")
     X_train, y_train = get_data(TRAIN_TRIPLETS)
 
-    print("\npreparing train vali split")
-
     if vali:
+        print("\npreparing train vali split")
         p = 0.8
-        X_train, X_vali, y_train, y_vali = train_test_split(X_train, y_train, train_size=p, random_state=42)
+        X_train, X_vali, y_train, y_vali = train_test_split(X_train, y_train, train_size=p, random_state=34)
 
-    # Create data loaders for the training and testing data
     print("\npreparing train loader")
     train_loader = create_loader_from_np(X_train, y_train, train=True, batch_size=batches_size)
 
@@ -334,21 +329,19 @@ if __name__ == '__main__':
     if vali:
         X_vali = torch.from_numpy(X_vali).type(torch.float)
         y_vali = torch.from_numpy(y_vali).type(torch.float)
-
-    model_15_0 = train_model(train_loader, Net(0.15, 0.), "15_0", vali=vali)
-    model_25_0 = train_model(train_loader, Net(0.25, 0.), "25_0", vali=vali)
-    model_0_15 = train_model(train_loader, Net(0., 0.15), "0_15", vali=vali)
-    model_0_25 = train_model(train_loader, Net(0, 0.25), "0_25", vali=vali)
-    model_15_15 = train_model(train_loader, Net(0.15, 0.15), "15_15", vali=vali)
-    model_25_25 = train_model(train_loader, Net(0.25, 0.25), "25_25", vali=vali)
+    
+    model_25_25 = train_model(train_loader, Net(0.25, 0.25), 7, "25_25", vali=vali)
+    model_20_20 = train_model(train_loader, Net(0.20, 0.20), 7, "20_20", vali=vali)
 
     if not vali:
-        # test the model on the test data
         print("\nloading test data")
         X_test, _ = get_data(TEST_TRIPLETS, train=False)
-        
+    
         print("\npreparing test loader")
         test_loader = create_loader_from_np(X_test, train=False, batch_size=1000, shuffle=False)
+
         print("\ngenerating results.txt")
-        test_model(model_15_0, test_loader)
+        test_model(model_25_25, "25_25_7", test_loader)
+        test_model(model_20_20, "20_20_7", test_loader)
+        
 
