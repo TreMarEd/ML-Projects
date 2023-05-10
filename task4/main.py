@@ -7,15 +7,23 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
+from sklearn.linear_model import Ridge
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import cross_val_score
 from sklearn.base import BaseEstimator, TransformerMixin
 from matplotlib import pyplot as plt
 import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-epochs = 10
+epochs = 12
 learning_rate = 1e-4
-num_neurons1 = 500
-num_neurons2 = 100
+num_neurons1 = 700
+num_neurons2 = 350
+#num_neurons3 = 250
+#num_neurons4 = 200
+do1 = 0
+do2 = 0
 batch_size = 32
 
 
@@ -31,11 +39,11 @@ def load_data():
             y_train: np.ndarray, the labels of the training set
             x_test: np.ndarray, the features of the test set
     """
-    x_pretrain = pd.read_csv("public/pretrain_features.csv.zip", index_col="Id", compression='zip').drop("smiles", axis=1).to_numpy()
-    y_pretrain = pd.read_csv("public/pretrain_labels.csv.zip", index_col="Id", compression='zip').to_numpy().squeeze(-1)
-    x_train = pd.read_csv("public/train_features.csv.zip", index_col="Id", compression='zip').drop("smiles", axis=1).to_numpy()
-    y_train = pd.read_csv("public/train_labels.csv.zip", index_col="Id", compression='zip').to_numpy().squeeze(-1)
-    x_test = pd.read_csv("public/test_features.csv.zip", index_col="Id", compression='zip').drop("smiles", axis=1)
+    x_pretrain = pd.read_csv("./task4/pretrain_features.csv", index_col="Id").drop("smiles", axis=1).to_numpy()
+    y_pretrain = pd.read_csv("./task4/pretrain_labels.csv", index_col="Id").to_numpy().squeeze(-1)
+    x_train = pd.read_csv("./task4/train_features.csv", index_col="Id").drop("smiles", axis=1).to_numpy()
+    y_train = pd.read_csv("./task4/train_labels.csv", index_col="Id").to_numpy().squeeze(-1)
+    x_test = pd.read_csv("./task4/test_features.csv", index_col="Id").drop("smiles", axis=1)
     return x_pretrain, y_pretrain, x_train, y_train, x_test
 
 class Net(nn.Module):
@@ -48,10 +56,15 @@ class Net(nn.Module):
         """
         super().__init__()
         self.fc1 = nn.Linear(1000, num_neurons1)
-        self.do1 = nn.Dropout(0.2)
+        #self.do1 = nn.Dropout(do1)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
-        self.do2 = nn.Dropout(0.2)
-        self.fc3 = nn.Linear(100, 1)
+        #self.do2 = nn.Dropout(do2)
+        #self.fc3 = nn.Linear(num_neurons2, num_neurons3)
+        #self.do3 = nn.Dropout(do2)
+        #self.fc4 = nn.Linear(num_neurons3, num_neurons4)
+        self.fc5 = nn.Linear(num_neurons2, 100)
+        #self.do4 = nn.Dropout(do2)
+        self.fc6 = nn.Linear(100, 1)
 
 
     def forward(self, x):
@@ -66,11 +79,14 @@ class Net(nn.Module):
         # defined in the constructor.
 
         x = F.relu(self.fc1(x))  
-        x = self.do1(x)
-        x = self.fc2(x)
-        x = self.do2(x)
-        x = self.fc3(x)
-        return x
+        #x = self.do1(x)
+        x = F.relu(self.fc2(x))
+        #x = self.do2(x)
+        #x = F.relu(self.fc3(x))
+        #x = F.relu(self.fc4(x))
+        x = F.relu(self.fc5(x))
+        x = self.fc6(x)
+        return torch.squeeze(x)
     
 def make_feature_extractor(x, y):
     """
@@ -85,6 +101,8 @@ def make_feature_extractor(x, y):
     output: make_features: function, a function which can be used to extract features from the training and test data
     """
     # Pretraining data loading
+    #x = x[:100, :]
+    #y = y[:100]
     x_tr, x_val, y_tr, y_val = train_test_split(x, y, train_size=0.8, random_state=42, shuffle=True)
 
     n = np.shape(x_tr)[0]
@@ -102,14 +120,13 @@ def make_feature_extractor(x, y):
 
     vali_losses = []
     train_losses = []
-    
-    num_batches = int(n/batch_size)
+    num_batches = int(np.ceil(n/batch_size))
 
     for epoch in range(epochs):
         print(f'--------EPOCH {epoch}--------')
         tic = time.perf_counter()
 
-        for l in num_batches:
+        for l in range(num_batches):
             start = batch_size * l
             end = batch_size * (l + 1)
             x_batch = x_tr[start:end, :]
@@ -120,6 +137,7 @@ def make_feature_extractor(x, y):
             loss = criterion(y_pred, y_batch)
             loss.backward()
             optimizer.step()
+
 
         with torch.no_grad():
             model.eval()
@@ -133,21 +151,22 @@ def make_feature_extractor(x, y):
             vali_losses.append(vali_loss)
 
             toc = time.perf_counter()
-            print(f"train loss       {train_loss:.2f}%")
-            print(f"vali loss        {vali_loss:.2f}%")
+            print(f"train RMSE       {np.sqrt(train_loss):.2f}")
+            print(f"vali RMSE        {np.sqrt(vali_loss):.2f}")
             print(f"elapsed minutes: {(toc-tic)/60:.1f}")
 
         model.train()
 
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in train_losses], 'b-', label="train")
-    axes = plt.plot([i for i in range(epochs)], [item.item() for item in vali_losses], 'g-', label="vali")
+    axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
+    axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
 
     plt.xlabel("epoch")
     plt.ylabel("loss")
     plt.legend(loc="upper right")
     plt.grid()
-    plt.savefig(f"./task 3/lr{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
-    plt.clf()
+    plt.ylim(0, 0.2)
+    plt.savefig(f"./task4/lr{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
+
     model.eval()
 
     def make_features(x):
@@ -161,8 +180,10 @@ def make_feature_extractor(x, y):
         further in the pipeline
         """
         model.eval()
+        feature_model = nn.Sequential(*list(model.children())[:-1])
         # TODO: Implement the feature extraction, a part of a pretrained model used later in the pipeline.
-        return x
+        x = torch.tensor(x, dtype=torch.float) 
+        return feature_model.forward(x).detach().numpy()
 
     return make_features
 
@@ -205,7 +226,7 @@ def get_regression_model():
     # by the feature extractor.
     # TODO: wie mache ich mein eigenes sklearn model?
     # https://towardsdatascience.com/how-to-build-a-custom-estimator-for-scikit-learn-fddc0cb9e16e, muss nur predict selber implementiren
-    model = None
+    model = Ridge(alpha=1.0)
     return model
 
 
@@ -222,15 +243,40 @@ if __name__ == '__main__':
     # regression model
     regression_model = get_regression_model()
 
-    y_pred = np.zeros(x_test.shape[0])
     # TODO: Implement the pipeline. It should contain feature extraction and regression. You can optionally
     # use other sklearn tools, such as StandardScaler, FunctionTransformer, etc.
 
     # sehr verwirrend gemacht. schlussendlich calle ich PretrainedFearureClass.transform(X_train) für meine features
-    # danach mache ich standard scaler
+    # danach mache ich standard scaler (standard scaler darf ich nicht anwenden wenn ich mein lomo modell dann mitverwende)
     # wahrscheinlcih soll ich sklearn.pipeline.Pipeline verwenden
     # danach regression cross validatiojn mit diversen regularisierungs parameter
     # danach training auf vollem datensatz
+
+    pretrain_feature_trafo = PretrainedFeatureClass(feature_extractor="pretrain")
+    x_train = pretrain_feature_trafo.transform(x_train)
+    x_test_ = pretrain_feature_trafo.transform(x_test.to_numpy())
+
+    scaler = StandardScaler()
+    x_train = scaler.fit_transform(x_train)
+    x_test_ = scaler.transform(x_test_)
+
+    RMSEs = []
+
+    alphas = [0.1, 1, 10, 100, 1000]
+
+    for l in alphas:
+        ridge_model = Ridge(alpha=l)
+        cv_scores = cross_val_score(ridge_model, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error")
+        RMSE = -np.mean(cv_scores)
+        RMSEs.append(RMSE)
+    print(f"\nRMSEs {RMSEs}")
+    j = RMSEs.index(min(RMSEs))
+
+    model = Ridge(alpha=alphas[j])
+
+    model = model.fit(x_train, y_train)
+
+    y_pred = model.predict(x_test_)
 
     assert y_pred.shape == (x_test.shape[0],)
     y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
