@@ -16,15 +16,28 @@ from matplotlib import pyplot as plt
 import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-epochs = 12
+#currently submitted and queued on server, main and results correspond to this
+epochs = 11
 learning_rate = 1e-4
 num_neurons1 = 700
 num_neurons2 = 350
-#num_neurons3 = 250
-#num_neurons4 = 200
-do1 = 0
-do2 = 0
+num_neurons3 = 120
+alphas = np.linspace(10,40,400)
+
+"""
+public score 0.2692215743626324
+alphas = np.linspace(15,30,200)
+epochs = 11
+learning_rate = 1e-4
+num_neurons1 = 700
+num_neurons2 = 350
+num_neurons3 = 120
+"""
+
+do1 = 0.1
+do2 = 0.1
 batch_size = 32
+vali = False
 
 
 def load_data():
@@ -59,12 +72,10 @@ class Net(nn.Module):
         #self.do1 = nn.Dropout(do1)
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         #self.do2 = nn.Dropout(do2)
-        #self.fc3 = nn.Linear(num_neurons2, num_neurons3)
+        self.fc3 = nn.Linear(num_neurons2, num_neurons3)
         #self.do3 = nn.Dropout(do2)
-        #self.fc4 = nn.Linear(num_neurons3, num_neurons4)
-        self.fc5 = nn.Linear(num_neurons2, 100)
         #self.do4 = nn.Dropout(do2)
-        self.fc6 = nn.Linear(100, 1)
+        self.fc4 = nn.Linear(num_neurons3, 1)
 
 
     def forward(self, x):
@@ -75,17 +86,13 @@ class Net(nn.Module):
 
         output: x: torch.Tensor, the output of the model
         """
-        # TODO: Implement the forward pass of the model, in accordance with the architecture 
-        # defined in the constructor.
 
         x = F.relu(self.fc1(x))  
         #x = self.do1(x)
         x = F.relu(self.fc2(x))
         #x = self.do2(x)
-        #x = F.relu(self.fc3(x))
-        #x = F.relu(self.fc4(x))
-        x = F.relu(self.fc5(x))
-        x = self.fc6(x)
+        x = F.relu(self.fc3(x))
+        x = self.fc4(x)
         return torch.squeeze(x)
     
 def make_feature_extractor(x, y):
@@ -101,14 +108,17 @@ def make_feature_extractor(x, y):
     output: make_features: function, a function which can be used to extract features from the training and test data
     """
     # Pretraining data loading
-    #x = x[:100, :]
-    #y = y[:100]
-    x_tr, x_val, y_tr, y_val = train_test_split(x, y, train_size=0.8, random_state=42, shuffle=True)
+    if vali:
+        x_tr, x_val, y_tr, y_val = train_test_split(x, y, train_size=0.8, random_state=42, shuffle=True)
+    else:
+        x_tr = x
+        y_tr = y
 
     n = np.shape(x_tr)[0]
 
-    x_tr, x_val = torch.tensor(x_tr, dtype=torch.float), torch.tensor(x_val, dtype=torch.float)
-    y_tr, y_val = torch.tensor(y_tr, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
+    x_tr, y_tr = torch.tensor(x_tr, dtype=torch.float), torch.tensor(y_tr, dtype=torch.float)
+    if vali:
+        x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
 
     # model declaration
     model = Net()
@@ -145,20 +155,20 @@ def make_feature_extractor(x, y):
             y_pred = model.forward(x_tr)
             train_loss = criterion(y_pred, y_tr)
             train_losses.append(train_loss)
-
-            y_pred = model.forward(x_val)
-            vali_loss = criterion(y_pred, y_val)
-            vali_losses.append(vali_loss)
+            if vali:
+                y_pred = model.forward(x_val)
+                vali_loss = criterion(y_pred, y_val)
+                vali_losses.append(vali_loss)
 
             toc = time.perf_counter()
-            print(f"train RMSE       {np.sqrt(train_loss):.2f}")
-            print(f"vali RMSE        {np.sqrt(vali_loss):.2f}")
+            print(f"train RMSE       {np.sqrt(train_loss):.4f}")
+            if vali: print(f"vali RMSE        {np.sqrt(vali_loss):.4f}")
             print(f"elapsed minutes: {(toc-tic)/60:.1f}")
 
         model.train()
 
     axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
-    axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
+    if vali: axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
 
     plt.xlabel("epoch")
     plt.ylabel("loss")
@@ -181,7 +191,6 @@ def make_feature_extractor(x, y):
         """
         model.eval()
         feature_model = nn.Sequential(*list(model.children())[:-1])
-        # TODO: Implement the feature extraction, a part of a pretrained model used later in the pipeline.
         x = torch.tensor(x, dtype=torch.float) 
         return feature_model.forward(x).detach().numpy()
 
@@ -222,8 +231,6 @@ def get_regression_model():
 
     output: model: sklearn compatible model, the regression model
     """
-    # TODO: Implement the regression model. It should be able to be trained on the features extracted
-    # by the feature extractor.
     # TODO: wie mache ich mein eigenes sklearn model?
     # https://towardsdatascience.com/how-to-build-a-custom-estimator-for-scikit-learn-fddc0cb9e16e, muss nur predict selber implementiren
     model = Ridge(alpha=1.0)
@@ -243,15 +250,6 @@ if __name__ == '__main__':
     # regression model
     regression_model = get_regression_model()
 
-    # TODO: Implement the pipeline. It should contain feature extraction and regression. You can optionally
-    # use other sklearn tools, such as StandardScaler, FunctionTransformer, etc.
-
-    # sehr verwirrend gemacht. schlussendlich calle ich PretrainedFearureClass.transform(X_train) für meine features
-    # danach mache ich standard scaler (standard scaler darf ich nicht anwenden wenn ich mein lomo modell dann mitverwende)
-    # wahrscheinlcih soll ich sklearn.pipeline.Pipeline verwenden
-    # danach regression cross validatiojn mit diversen regularisierungs parameter
-    # danach training auf vollem datensatz
-
     pretrain_feature_trafo = PretrainedFeatureClass(feature_extractor="pretrain")
     x_train = pretrain_feature_trafo.transform(x_train)
     x_test_ = pretrain_feature_trafo.transform(x_test.to_numpy())
@@ -262,15 +260,15 @@ if __name__ == '__main__':
 
     RMSEs = []
 
-    alphas = [0.1, 1, 10, 100, 1000]
-
+    print("\training ridge regression\n")
     for l in alphas:
         ridge_model = Ridge(alpha=l)
         cv_scores = cross_val_score(ridge_model, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error")
         RMSE = -np.mean(cv_scores)
         RMSEs.append(RMSE)
-    print(f"\nRMSEs {RMSEs}")
+    print(f"\nalphas and RMSEs {list(zip(np.round(alphas, decimals=3), np.round(RMSEs, decimals=3)))}")
     j = RMSEs.index(min(RMSEs))
+    print(f"\nbest RMSE and alpha  {RMSEs[j]}, {alphas[j]}")
 
     model = Ridge(alpha=alphas[j])
 
@@ -280,5 +278,5 @@ if __name__ == '__main__':
 
     assert y_pred.shape == (x_test.shape[0],)
     y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
-    y_pred.to_csv("results.csv", index_label="Id")
+    y_pred.to_csv("./task4/results_valiFALSE.csv", index_label="Id")
     print("Predictions saved, all done!")
