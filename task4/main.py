@@ -18,13 +18,24 @@ import time
 torch.manual_seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #currently submitted and queued on server, main and results correspond to this
-epochs = 12
+epochs = 10
 learning_rate = 5e-5
-num_neurons1 = 700
-num_neurons2 = 360
-num_neurons3 = 120
-#num_neurons4 = 100
-alphas = np.linspace(0,50,500)
+num_neurons1 = 800
+num_neurons2 = 400
+num_neurons3 = 200 # feature dim
+num_neurons4 = 100 # hidden layer
+alphas = np.linspace(0,10,100)
+"""
+ok results for homo hidden layer architecture:
+CV-RMSE 22.49%
+epochs = 10
+learning_rate = 5e-5
+num_neurons1 = 800
+num_neurons2 = 400
+num_neurons3 = 200
+num_neurons4 = 100
+alphas = np.linspace(0,10,100)
+"""
 
 """
 productive easy baseline model:
@@ -75,10 +86,10 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         #self.do2 = nn.Dropout(do2)
         self.fc3 = nn.Linear(num_neurons2, num_neurons3)
-        #self.fc4 = nn.Linear(num_neurons3, num_neurons4)
+        self.fc4 = nn.Linear(num_neurons3, num_neurons4)
         #self.do3 = nn.Dropout(do2)
         #self.do4 = nn.Dropout(do2)
-        self.fc4 = nn.Linear(num_neurons3, 1)
+        self.fc5 = nn.Linear(num_neurons4, 1)
 
 
     def forward(self, x):
@@ -95,8 +106,36 @@ class Net(nn.Module):
         x = F.relu(self.fc2(x))
         #x = self.do2(x)
         x = F.relu(self.fc3(x))
-        #x = F.relu(self.fc4(x))
-        x = self.fc4(x)
+        x = F.relu(self.fc4(x))
+        x = self.fc5(x)
+        return torch.squeeze(x)
+    
+
+class Gap_Net(nn.Module):
+    """
+    The model class, which defines our feature extractor used in pretraining.
+    """
+    def __init__(self):
+        """
+        The constructor of the model.
+        """
+        super().__init__()
+        self.fc1 = nn.Linear(num_neurons3, num_neurons4)
+        #self.do1 = nn.Dropout(0.1)
+        self.fc2 = nn.Linear(num_neurons4, 1)
+
+
+    def forward(self, x):
+        """
+        The forward pass of the model.
+
+        input: x: torch.Tensor, the input to the model
+
+        output: x: torch.Tensor, the output of the model
+        """
+        x = F.relu(self.fc1(x))  
+        #x = self.do1(x)
+        x = self.fc2(x)
         return torch.squeeze(x)
     
 def make_feature_extractor(x, y):
@@ -111,8 +150,6 @@ def make_feature_extractor(x, y):
             
     output: make_features: function, a function which can be used to extract features from the training and test data
     """
-    #x = x[:100,:]
-    #y= y[:100]
     # Pretraining data loading
     if vali:
         x_tr, x_val, y_tr, y_val = train_test_split(x, y, train_size=0.8, random_state=42, shuffle=True)
@@ -182,6 +219,7 @@ def make_feature_extractor(x, y):
     plt.grid()
     plt.ylim(0, 0.2)
     plt.savefig(f"./task4/lr{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
+    plt.clf()
 
     model.eval()
 
@@ -197,19 +235,11 @@ def make_feature_extractor(x, y):
         """
         model.eval()
         with torch.no_grad():
-            feature_model = nn.Sequential(*list(model.children())[:-1])
+            feature_model = nn.Sequential(*list(model.children())[:-2])
             x = torch.tensor(x, dtype=torch.float) 
             return feature_model.forward(x).detach().numpy()
-    
-    def make_lumo(x):
-        model.eval()
-        with torch.no_grad():
-            lumo_model = list(model.children())[-1]
-            lumo_model.eval()
-            x = torch.tensor(x, dtype=torch.float)
-            return np.squeeze(lumo_model.forward(x).detach().numpy())
 
-    return make_features, make_lumo
+    return make_features
 
 def make_pretraining_class(feature_extractors):
     """
@@ -244,62 +274,83 @@ if __name__ == '__main__':
     print("Data loaded!")
     # Utilize pretraining data by creating feature extractor which extracts lumo energy 
     # features from available initial features
-    feature_extractor, lumo_model =  make_feature_extractor(x_pretrain, y_pretrain)
+    feature_extractor =  make_feature_extractor(x_pretrain, y_pretrain)
     PretrainedFeatureClass = make_pretraining_class({"pretrain": feature_extractor})
 
     pretrain_feature_trafo = PretrainedFeatureClass(feature_extractor="pretrain")
     x_train_ = pretrain_feature_trafo.transform(x_train)
     x_test_ = pretrain_feature_trafo.transform(x_test.to_numpy())
 
-    scaler = StandardScaler()
-    x_train_ridge = scaler.fit_transform(x_train_)
-    x_test_ridge = scaler.transform(x_test_)
+    gap_nn = Gap_Net()
+    gap_nn.train()
+    gap_nn.to(device)
+  
+    criterion = torch.nn.MSELoss()
+    optimizer = torch.optim.Adam(gap_nn.parameters(), lr=1e-4) 
 
-    y_train_homo = lumo_model(x_train_) - y_train
+    vali_losses = []
+    train_losses = []
+    n = 100
+    batch_size = 20
+    num_batches = int(np.ceil(n/batch_size))
 
-    RMSEs_gap = []
-    RMSEs_homo = []
+    x_tr, x_val, y_tr, y_val = train_test_split(x_train_, y_train, train_size=0.85, random_state=42, shuffle=True)
+    x_tr, y_tr = torch.tensor(x_tr, dtype=torch.float), torch.tensor(y_tr, dtype=torch.float)
+    x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
 
-    print("\ncross validating ridge regression\n")
-    for l in alphas:
-        ridge_model_gap = Ridge(alpha=l)
-        ridge_model_homo = Ridge(alpha=l)
+    gap_epochs = 200
 
-        cv_scores_gap = cross_val_score(ridge_model_gap, x_train_ridge, y_train, cv=20, scoring="neg_root_mean_squared_error")
-        cv_scores_homo = cross_val_score(ridge_model_homo, x_train_ridge, y_train_homo, cv=20, scoring="neg_root_mean_squared_error")
+    print("\ntrain gap model now")
+    for epoch in range(gap_epochs):
+        print(f'--------EPOCH {epoch}--------')
+        tic = time.perf_counter()
 
-        RMSE_gap = -np.mean(cv_scores_gap)
-        RMSE_homo = -np.mean(cv_scores_homo)
+        for l in range(num_batches):
+            start = batch_size * l
+            end = batch_size * (l + 1)
+            x_batch = x_tr[start:end, :]
+            y_batch = y_tr[start:end]
 
-        RMSEs_gap.append(RMSE_gap)
-        RMSEs_homo.append(RMSE_homo)
-   
-    j_gap = RMSEs_gap.index(min(RMSEs_gap))
-    j_homo = RMSEs_homo.index(min(RMSEs_homo))
+            optimizer.zero_grad()
+            y_pred = gap_nn.forward(x_batch)
+            loss = criterion(y_pred, y_batch)
+            loss.backward()
+            optimizer.step()
 
-    print(f"\nGAP: best RMSE and alpha  {RMSEs_gap[j_gap]}, {alphas[j_gap]}")
-    print(f"\nHOMO: best RMSE and alpha  {RMSEs_homo[j_homo]}, {alphas[j_homo]}")
+        with torch.no_grad():
+            gap_nn.eval()
 
-    print("\ntraining ridge models")
-    #gap_model = Ridge(alpha=alphas[j_gap])
-    #homo_model = Ridge(alpha=alphas[j_homo])
+            y_pred = gap_nn.forward(x_tr)
+            train_loss = criterion(y_pred, y_tr)
+            train_losses.append(train_loss)
 
-    gap_model = Lasso(alpha=alphas[j_gap])
-    homo_model = Lasso(alpha=alphas[j_homo])
-    
-    gap_model.fit(x_train_ridge, y_train)
-    homo_model.fit(x_train_ridge, y_train_homo)
-    
-    print("\ncalculating predictions")
-    y_pred_homo = lumo_model(x_test_) - homo_model.predict(x_test_ridge)
-    y_pred_gap = gap_model.predict(x_test_ridge)
+            y_pred = gap_nn.forward(x_val)
+            vali_loss = criterion(y_pred, y_val)
+            vali_losses.append(vali_loss)
 
-    assert y_pred_homo.shape == (x_test.shape[0],)
-    y_pred_homo = pd.DataFrame({"y": y_pred_homo}, index=x_test.index)
-    y_pred_homo.to_csv("./task4/results_homo.csv", index_label="Id")
+            toc = time.perf_counter()
+            print(f"train RMSE       {np.sqrt(train_loss):.4f}")
+            print(f"vali RMSE        {np.sqrt(vali_loss):.4f}")
+            print(f"elapsed minutes: {(toc-tic)/60:.1f}")
 
-    assert y_pred_gap.shape == (x_test.shape[0],)
-    y_pred_gap = pd.DataFrame({"y": y_pred_gap}, index=x_test.index)
-    y_pred_gap.to_csv("./task4/results_gap.csv", index_label="Id")
+        gap_nn.train()
+
+    axes = plt.plot([i for i in range(gap_epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
+    axes = plt.plot([i for i in range(gap_epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
+
+    plt.xlabel("epoch")
+    plt.ylabel("loss")
+    plt.legend(loc="upper right")
+    plt.grid()
+    #plt.ylim(0, 0.2)
+    plt.savefig(f"./task4/gap_nn_lr{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
+
+    gap_nn.eval()
+
+    y_pred = gap_nn.forward(torch.tensor(x_test_, dtype=torch.float)).detach().numpy()
+
+    assert y_pred.shape == (x_test.shape[0],)
+    y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
+    y_pred.to_csv("./task4/results_homo.csv", index_label="Id")
 
     print("Predictions saved, all done!")
