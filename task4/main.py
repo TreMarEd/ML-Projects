@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import Ridge
+from sklearn.linear_model import Ridge, Lasso
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
@@ -281,8 +281,11 @@ if __name__ == '__main__':
     print(f"\nHOMO: best RMSE and alpha  {RMSEs_homo[j_homo]}, {alphas[j_homo]}")
 
     print("\ntraining ridge models")
-    gap_model = Ridge(alpha=alphas[j_gap])
-    homo_model = Ridge(alpha=alphas[j_homo])
+    #gap_model = Ridge(alpha=alphas[j_gap])
+    #homo_model = Ridge(alpha=alphas[j_homo])
+
+    gap_model = Lasso(alpha=alphas[j_gap])
+    homo_model = Lasso(alpha=alphas[j_homo])
     
     gap_model.fit(x_train_ridge, y_train)
     homo_model.fit(x_train_ridge, y_train_homo)
