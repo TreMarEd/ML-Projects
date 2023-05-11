@@ -15,23 +15,25 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from matplotlib import pyplot as plt
 import time
 
+torch.manual_seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #currently submitted and queued on server, main and results correspond to this
+epochs = 12
+learning_rate = 5e-5
+num_neurons1 = 700
+num_neurons2 = 360
+num_neurons3 = 120
+#num_neurons4 = 100
+alphas = np.linspace(0,50,500)
+
+"""
+productive easy baseline model:
 epochs = 11
 learning_rate = 1e-4
 num_neurons1 = 700
 num_neurons2 = 350
 num_neurons3 = 120
 alphas = np.linspace(10,40,400)
-
-"""
-public score 0.2692215743626324
-alphas = np.linspace(15,30,200)
-epochs = 11
-learning_rate = 1e-4
-num_neurons1 = 700
-num_neurons2 = 350
-num_neurons3 = 120
 """
 
 do1 = 0.1
@@ -73,6 +75,7 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         #self.do2 = nn.Dropout(do2)
         self.fc3 = nn.Linear(num_neurons2, num_neurons3)
+        #self.fc4 = nn.Linear(num_neurons3, num_neurons4)
         #self.do3 = nn.Dropout(do2)
         #self.do4 = nn.Dropout(do2)
         self.fc4 = nn.Linear(num_neurons3, 1)
@@ -92,6 +95,7 @@ class Net(nn.Module):
         x = F.relu(self.fc2(x))
         #x = self.do2(x)
         x = F.relu(self.fc3(x))
+        #x = F.relu(self.fc4(x))
         x = self.fc4(x)
         return torch.squeeze(x)
     
@@ -107,6 +111,8 @@ def make_feature_extractor(x, y):
             
     output: make_features: function, a function which can be used to extract features from the training and test data
     """
+    #x = x[:100,:]
+    #y= y[:100]
     # Pretraining data loading
     if vali:
         x_tr, x_val, y_tr, y_val = train_test_split(x, y, train_size=0.8, random_state=42, shuffle=True)
@@ -190,11 +196,20 @@ def make_feature_extractor(x, y):
         further in the pipeline
         """
         model.eval()
-        feature_model = nn.Sequential(*list(model.children())[:-1])
-        x = torch.tensor(x, dtype=torch.float) 
-        return feature_model.forward(x).detach().numpy()
+        with torch.no_grad():
+            feature_model = nn.Sequential(*list(model.children())[:-1])
+            x = torch.tensor(x, dtype=torch.float) 
+            return feature_model.forward(x).detach().numpy()
+    
+    def make_lumo(x):
+        model.eval()
+        with torch.no_grad():
+            lumo_model = list(model.children())[-1]
+            lumo_model.eval()
+            x = torch.tensor(x, dtype=torch.float)
+            return np.squeeze(lumo_model.forward(x).detach().numpy())
 
-    return make_features
+    return make_features, make_lumo
 
 def make_pretraining_class(feature_extractors):
     """
@@ -221,62 +236,67 @@ def make_pretraining_class(feature_extractors):
             X_new = feature_extractors[self.feature_extractor](X)
             return X_new
         
-    return PretrainedFeatures
+    return PretrainedFeatures    
 
-def get_regression_model():
-    """
-    This function returns the regression model used in the pipeline.
-
-    input: None
-
-    output: model: sklearn compatible model, the regression model
-    """
-    # TODO: wie mache ich mein eigenes sklearn model?
-    # https://towardsdatascience.com/how-to-build-a-custom-estimator-for-scikit-learn-fddc0cb9e16e, muss nur predict selber implementiren
-    model = Ridge(alpha=1.0)
-    return model
-
-
-# Main function. You don't have to change this
 if __name__ == '__main__':
     # Load data
     x_pretrain, y_pretrain, x_train, y_train, x_test = load_data()
     print("Data loaded!")
     # Utilize pretraining data by creating feature extractor which extracts lumo energy 
     # features from available initial features
-    feature_extractor =  make_feature_extractor(x_pretrain, y_pretrain)
+    feature_extractor, lumo_model =  make_feature_extractor(x_pretrain, y_pretrain)
     PretrainedFeatureClass = make_pretraining_class({"pretrain": feature_extractor})
-    
-    # regression model
-    regression_model = get_regression_model()
 
     pretrain_feature_trafo = PretrainedFeatureClass(feature_extractor="pretrain")
-    x_train = pretrain_feature_trafo.transform(x_train)
+    x_train_ = pretrain_feature_trafo.transform(x_train)
     x_test_ = pretrain_feature_trafo.transform(x_test.to_numpy())
 
     scaler = StandardScaler()
-    x_train = scaler.fit_transform(x_train)
-    x_test_ = scaler.transform(x_test_)
+    x_train_ridge = scaler.fit_transform(x_train_)
+    x_test_ridge = scaler.transform(x_test_)
 
-    RMSEs = []
+    y_train_homo = lumo_model(x_train_) - y_train
 
-    print("\training ridge regression\n")
+    RMSEs_gap = []
+    RMSEs_homo = []
+
+    print("\ncross validating ridge regression\n")
     for l in alphas:
-        ridge_model = Ridge(alpha=l)
-        cv_scores = cross_val_score(ridge_model, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error")
-        RMSE = -np.mean(cv_scores)
-        RMSEs.append(RMSE)
-    print(f"\nalphas and RMSEs {list(zip(np.round(alphas, decimals=3), np.round(RMSEs, decimals=3)))}")
-    j = RMSEs.index(min(RMSEs))
-    print(f"\nbest RMSE and alpha  {RMSEs[j]}, {alphas[j]}")
+        ridge_model_gap = Ridge(alpha=l)
+        ridge_model_homo = Ridge(alpha=l)
 
-    model = Ridge(alpha=alphas[j])
+        cv_scores_gap = cross_val_score(ridge_model_gap, x_train_ridge, y_train, cv=20, scoring="neg_root_mean_squared_error")
+        cv_scores_homo = cross_val_score(ridge_model_homo, x_train_ridge, y_train_homo, cv=20, scoring="neg_root_mean_squared_error")
 
-    model = model.fit(x_train, y_train)
+        RMSE_gap = -np.mean(cv_scores_gap)
+        RMSE_homo = -np.mean(cv_scores_homo)
 
-    y_pred = model.predict(x_test_)
+        RMSEs_gap.append(RMSE_gap)
+        RMSEs_homo.append(RMSE_homo)
+   
+    j_gap = RMSEs_gap.index(min(RMSEs_gap))
+    j_homo = RMSEs_homo.index(min(RMSEs_homo))
 
-    assert y_pred.shape == (x_test.shape[0],)
-    y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
-    y_pred.to_csv("./task4/results_valiFALSE.csv", index_label="Id")
+    print(f"\nGAP: best RMSE and alpha  {RMSEs_gap[j_gap]}, {alphas[j_gap]}")
+    print(f"\nHOMO: best RMSE and alpha  {RMSEs_homo[j_homo]}, {alphas[j_homo]}")
+
+    print("\ntraining ridge models")
+    gap_model = Ridge(alpha=alphas[j_gap])
+    homo_model = Ridge(alpha=alphas[j_homo])
+    
+    gap_model.fit(x_train_ridge, y_train)
+    homo_model.fit(x_train_ridge, y_train_homo)
+    
+    print("\ncalculating predictions")
+    y_pred_homo = lumo_model(x_test_) - homo_model.predict(x_test_ridge)
+    y_pred_gap = gap_model.predict(x_test_ridge)
+
+    assert y_pred_homo.shape == (x_test.shape[0],)
+    y_pred_homo = pd.DataFrame({"y": y_pred_homo}, index=x_test.index)
+    y_pred_homo.to_csv("./task4/results_homo.csv", index_label="Id")
+
+    assert y_pred_gap.shape == (x_test.shape[0],)
+    y_pred_gap = pd.DataFrame({"y": y_pred_gap}, index=x_test.index)
+    y_pred_gap.to_csv("./task4/results_gap.csv", index_label="Id")
+
     print("Predictions saved, all done!")
