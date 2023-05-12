@@ -11,19 +11,21 @@ from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
+from sklearn.gaussian_process import GaussianProcessRegressor
+from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 from sklearn.base import BaseEstimator, TransformerMixin
 from matplotlib import pyplot as plt
 import time
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-epochs = 11
-learning_rate = 1e-4
+epochs = 10
+learning_rate = 5e-5
 num_neurons1 = 700
-num_neurons2 = 350
+num_neurons2 = 360
 num_neurons3 = 120
-alphas = np.linspace(10,40,400)
-do1 = 0.1
-do2 = 0.1
+#alphas = np.linspace(10,40,400)
+#do1 = 0.1
+#do2 = 0.1
 batch_size = 32
 vali = False
 
@@ -47,7 +49,7 @@ def load_data():
     x_test = pd.read_csv("./task4/test_features.csv", index_col="Id").drop("smiles", axis=1)
     return x_pretrain, y_pretrain, x_train, y_train, x_test
 
-class Net(nn.Module):
+class LumoNet(nn.Module):
     """
     The model class, which defines our feature extractor used in pretraining.
     """
@@ -109,7 +111,7 @@ def make_feature_extractor(x, y):
         x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
 
     # model declaration
-    model = Net()
+    model = LumoNet()
     model.train()
     model.to(device)
   
@@ -228,6 +230,7 @@ if __name__ == '__main__':
     x_train = scaler.fit_transform(x_train)
     x_test_ = scaler.transform(x_test_)
 
+    """
     RMSEs = []
 
     print("\training ridge regression\n")
@@ -243,8 +246,32 @@ if __name__ == '__main__':
     model = Ridge(alpha=alphas[j])
 
     model = model.fit(x_train, y_train)
+    """
 
-    y_pred = model.predict(x_test_)
+    kernels = [Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0)),
+               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))]
+
+    cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
+    best_kernel = None
+    best_score = 100000
+
+    for kernel in kernels:
+        gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+        score = -np.mean(cross_val_score(gpr, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error"))
+        cv_scores.loc[str(kernel), "CV_score"] = score
+
+        if score < best_score:
+            best_kernel = kernel
+            best_score = score
+
+    print("\nTHE KERNELS ACHIEVE THE FOLLOWING R2-CV-SCORES:\n")
+    print(cv_scores)
+    print("\nTHE BEST KERNEL IS ", str(best_kernel), ". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
+
+    gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+    gpr.fit(x_train, y_train)
+    y_pred = gpr.predict(x_test_)
+
 
     assert y_pred.shape == (x_test.shape[0],)
     y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
