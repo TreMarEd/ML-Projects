@@ -7,7 +7,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from sklearn.model_selection import train_test_split
-from sklearn.linear_model import Ridge, Lasso
+from sklearn.linear_model import Ridge
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import cross_val_score
@@ -15,39 +15,13 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from matplotlib import pyplot as plt
 import time
 
-torch.manual_seed(42)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-#currently submitted and queued on server, main and results correspond to this
-epochs = 10
-learning_rate = 5e-5
-num_neurons1 = 900
-num_neurons2 = 600
-num_neurons3 = 300 # feature dim
-num_neurons4 = 200 # hidden layer
-num_neurons5 = 100 # hidden layer
-alphas = np.linspace(0,10,100)
-"""
-ok results for homo hidden layer architecture:
-CV-RMSE 22.49%
-epochs = 10
-learning_rate = 5e-5
-num_neurons1 = 800
-num_neurons2 = 400
-num_neurons3 = 200
-num_neurons4 = 100
-alphas = np.linspace(0,10,100)
-"""
-
-"""
-productive easy baseline model:
 epochs = 11
 learning_rate = 1e-4
 num_neurons1 = 700
 num_neurons2 = 350
 num_neurons3 = 120
 alphas = np.linspace(10,40,400)
-"""
-
 do1 = 0.1
 do2 = 0.1
 batch_size = 32
@@ -87,11 +61,9 @@ class Net(nn.Module):
         self.fc2 = nn.Linear(num_neurons1, num_neurons2)
         #self.do2 = nn.Dropout(do2)
         self.fc3 = nn.Linear(num_neurons2, num_neurons3)
-        self.fc4 = nn.Linear(num_neurons3, num_neurons4)
-        self.fc5 = nn.Linear(num_neurons4, num_neurons5)
         #self.do3 = nn.Dropout(do2)
         #self.do4 = nn.Dropout(do2)
-        self.fc6 = nn.Linear(num_neurons5, 1)
+        self.fc4 = nn.Linear(num_neurons3, 1)
 
 
     def forward(self, x):
@@ -108,42 +80,7 @@ class Net(nn.Module):
         x = F.relu(self.fc2(x))
         #x = self.do2(x)
         x = F.relu(self.fc3(x))
-        x = F.relu(self.fc4(x))
-        x = F.relu(self.fc5(x))
-        x = self.fc6(x)
-        return torch.squeeze(x)
-    
-
-class Gap_Net(nn.Module):
-    """
-    The model class, which defines our feature extractor used in pretraining.
-    """
-    def __init__(self):
-        """
-        The constructor of the model.
-        """
-        super().__init__()
-        self.fc1 = nn.Linear(num_neurons3, num_neurons4)
-        self.do1 = nn.Dropout(0.30)
-        self.fc2 = nn.Linear(num_neurons4, num_neurons5)
-        self.do1 = nn.Dropout(0.30)
-        self.fc3 = nn.Linear(num_neurons5, 1)
-
-
-    def forward(self, x):
-        """
-        The forward pass of the model.
-
-        input: x: torch.Tensor, the input to the model
-
-        output: x: torch.Tensor, the output of the model
-        """
-        x = F.relu(self.fc1(x))  
-        x = self.do1(x)
-        x = F.relu(self.fc2(x))
-        x = self.do1(x)
-        x = self.fc3(x)
-
+        x = self.fc4(x)
         return torch.squeeze(x)
     
 def make_feature_extractor(x, y):
@@ -227,7 +164,6 @@ def make_feature_extractor(x, y):
     plt.grid()
     plt.ylim(0, 0.2)
     plt.savefig(f"./task4/lr{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
-    plt.clf()
 
     model.eval()
 
@@ -242,10 +178,9 @@ def make_feature_extractor(x, y):
         further in the pipeline
         """
         model.eval()
-        with torch.no_grad():
-            feature_model = nn.Sequential(*list(model.children())[:-3])
-            x = torch.tensor(x, dtype=torch.float) 
-            return feature_model.forward(x).detach().numpy()
+        feature_model = nn.Sequential(*list(model.children())[:-1])
+        x = torch.tensor(x, dtype=torch.float) 
+        return feature_model.forward(x).detach().numpy()
 
     return make_features
 
@@ -274,92 +209,44 @@ def make_pretraining_class(feature_extractors):
             X_new = feature_extractors[self.feature_extractor](X)
             return X_new
         
-    return PretrainedFeatures    
+    return PretrainedFeatures
 
 if __name__ == '__main__':
     # Load data
     x_pretrain, y_pretrain, x_train, y_train, x_test = load_data()
     print("Data loaded!")
-    # Utilize pretraining data by creating feature extractor which extracts lumo energy 
-    # features from available initial features
+
     feature_extractor =  make_feature_extractor(x_pretrain, y_pretrain)
     PretrainedFeatureClass = make_pretraining_class({"pretrain": feature_extractor})
+    
 
     pretrain_feature_trafo = PretrainedFeatureClass(feature_extractor="pretrain")
-    x_train_ = pretrain_feature_trafo.transform(x_train)
+    x_train = pretrain_feature_trafo.transform(x_train)
     x_test_ = pretrain_feature_trafo.transform(x_test.to_numpy())
 
-    gap_nn = Gap_Net()
-    gap_nn.train()
-    gap_nn.to(device)
-  
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(gap_nn.parameters(), lr=1e-4) 
+    scaler = StandardScaler()
+    x_train = scaler.fit_transform(x_train)
+    x_test_ = scaler.transform(x_test_)
 
-    vali_losses = []
-    train_losses = []
-    n = 100
-    batch_size = 20
-    num_batches = int(np.ceil(n/batch_size))
+    RMSEs = []
 
-    x_tr, x_val, y_tr, y_val = train_test_split(x_train_, y_train, train_size=0.5, random_state=42, shuffle=True)
-    x_tr, y_tr = torch.tensor(x_tr, dtype=torch.float), torch.tensor(y_tr, dtype=torch.float)
-    x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
+    print("\training ridge regression\n")
+    for l in alphas:
+        ridge_model = Ridge(alpha=l)
+        cv_scores = cross_val_score(ridge_model, x_train, y_train, cv=10, scoring="neg_root_mean_squared_error")
+        RMSE = -np.mean(cv_scores)
+        RMSEs.append(RMSE)
+    print(f"\nalphas and RMSEs {list(zip(np.round(alphas, decimals=3), np.round(RMSEs, decimals=3)))}")
+    j = RMSEs.index(min(RMSEs))
+    print(f"\nbest RMSE and alpha  {RMSEs[j]}, {alphas[j]}")
 
-    gap_epochs = 800
+    model = Ridge(alpha=alphas[j])
 
-    print("\ntrain gap model now")
-    for epoch in range(gap_epochs):
-        print(f'--------EPOCH {epoch}--------')
-        tic = time.perf_counter()
+    model = model.fit(x_train, y_train)
 
-        for l in range(num_batches):
-            start = batch_size * l
-            end = batch_size * (l + 1)
-            x_batch = x_tr[start:end, :]
-            y_batch = y_tr[start:end]
-
-            optimizer.zero_grad()
-            y_pred = gap_nn.forward(x_batch)
-            loss = criterion(y_pred, y_batch)
-            loss.backward()
-            optimizer.step()
-
-        with torch.no_grad():
-            gap_nn.eval()
-
-            y_pred = gap_nn.forward(x_tr)
-            train_loss = criterion(y_pred, y_tr)
-            train_losses.append(train_loss)
-
-            y_pred = gap_nn.forward(x_val)
-            vali_loss = criterion(y_pred, y_val)
-            vali_losses.append(vali_loss)
-
-            toc = time.perf_counter()
-        
-        gap_nn.train()
-
-    print(f"train RMSE       {np.sqrt(train_loss):.4f}")
-    print(f"vali RMSE        {np.sqrt(vali_loss):.4f}")
-
-        
-    axes = plt.plot([i for i in range(gap_epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
-    axes = plt.plot([i for i in range(gap_epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
-
-    plt.xlabel("epoch")
-    plt.ylabel("loss")
-    plt.legend(loc="upper right")
-    plt.grid()
-    #plt.ylim(0, 0.2)
-    plt.savefig(f"./task4/gap_nn_lr{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
-
-    gap_nn.eval()
-
-    y_pred = gap_nn.forward(torch.tensor(x_test_, dtype=torch.float)).detach().numpy()
+    y_pred = model.predict(x_test_)
 
     assert y_pred.shape == (x_test.shape[0],)
     y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
-    y_pred.to_csv("./task4/results.csv", index_label="Id")
-
+    y_pred.to_csv("./task4/results_valiFALSE.csv", index_label="Id")
     print("Predictions saved, all done!")
