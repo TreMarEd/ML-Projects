@@ -20,10 +20,11 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 #currently submitted and queued on server, main and results correspond to this
 epochs = 10
 learning_rate = 5e-5
-num_neurons1 = 800
-num_neurons2 = 400
-num_neurons3 = 200 # feature dim
-num_neurons4 = 100 # hidden layer
+num_neurons1 = 900
+num_neurons2 = 600
+num_neurons3 = 300 # feature dim
+num_neurons4 = 200 # hidden layer
+num_neurons5 = 100 # hidden layer
 alphas = np.linspace(0,10,100)
 """
 ok results for homo hidden layer architecture:
@@ -87,9 +88,10 @@ class Net(nn.Module):
         #self.do2 = nn.Dropout(do2)
         self.fc3 = nn.Linear(num_neurons2, num_neurons3)
         self.fc4 = nn.Linear(num_neurons3, num_neurons4)
+        self.fc5 = nn.Linear(num_neurons4, num_neurons5)
         #self.do3 = nn.Dropout(do2)
         #self.do4 = nn.Dropout(do2)
-        self.fc5 = nn.Linear(num_neurons4, 1)
+        self.fc6 = nn.Linear(num_neurons5, 1)
 
 
     def forward(self, x):
@@ -107,7 +109,8 @@ class Net(nn.Module):
         #x = self.do2(x)
         x = F.relu(self.fc3(x))
         x = F.relu(self.fc4(x))
-        x = self.fc5(x)
+        x = F.relu(self.fc5(x))
+        x = self.fc6(x)
         return torch.squeeze(x)
     
 
@@ -121,8 +124,10 @@ class Gap_Net(nn.Module):
         """
         super().__init__()
         self.fc1 = nn.Linear(num_neurons3, num_neurons4)
-        #self.do1 = nn.Dropout(0.1)
-        self.fc2 = nn.Linear(num_neurons4, 1)
+        self.do1 = nn.Dropout(0.30)
+        self.fc2 = nn.Linear(num_neurons4, num_neurons5)
+        self.do1 = nn.Dropout(0.30)
+        self.fc3 = nn.Linear(num_neurons5, 1)
 
 
     def forward(self, x):
@@ -134,8 +139,11 @@ class Gap_Net(nn.Module):
         output: x: torch.Tensor, the output of the model
         """
         x = F.relu(self.fc1(x))  
-        #x = self.do1(x)
-        x = self.fc2(x)
+        x = self.do1(x)
+        x = F.relu(self.fc2(x))
+        x = self.do1(x)
+        x = self.fc3(x)
+
         return torch.squeeze(x)
     
 def make_feature_extractor(x, y):
@@ -235,7 +243,7 @@ def make_feature_extractor(x, y):
         """
         model.eval()
         with torch.no_grad():
-            feature_model = nn.Sequential(*list(model.children())[:-2])
+            feature_model = nn.Sequential(*list(model.children())[:-3])
             x = torch.tensor(x, dtype=torch.float) 
             return feature_model.forward(x).detach().numpy()
 
@@ -294,11 +302,11 @@ if __name__ == '__main__':
     batch_size = 20
     num_batches = int(np.ceil(n/batch_size))
 
-    x_tr, x_val, y_tr, y_val = train_test_split(x_train_, y_train, train_size=0.85, random_state=42, shuffle=True)
+    x_tr, x_val, y_tr, y_val = train_test_split(x_train_, y_train, train_size=0.5, random_state=42, shuffle=True)
     x_tr, y_tr = torch.tensor(x_tr, dtype=torch.float), torch.tensor(y_tr, dtype=torch.float)
     x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
 
-    gap_epochs = 200
+    gap_epochs = 800
 
     print("\ntrain gap model now")
     for epoch in range(gap_epochs):
@@ -329,12 +337,13 @@ if __name__ == '__main__':
             vali_losses.append(vali_loss)
 
             toc = time.perf_counter()
-            print(f"train RMSE       {np.sqrt(train_loss):.4f}")
-            print(f"vali RMSE        {np.sqrt(vali_loss):.4f}")
-            print(f"elapsed minutes: {(toc-tic)/60:.1f}")
-
+        
         gap_nn.train()
 
+    print(f"train RMSE       {np.sqrt(train_loss):.4f}")
+    print(f"vali RMSE        {np.sqrt(vali_loss):.4f}")
+
+        
     axes = plt.plot([i for i in range(gap_epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
     axes = plt.plot([i for i in range(gap_epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
 
@@ -351,6 +360,6 @@ if __name__ == '__main__':
 
     assert y_pred.shape == (x_test.shape[0],)
     y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
-    y_pred.to_csv("./task4/results_homo.csv", index_label="Id")
+    y_pred.to_csv("./task4/results.csv", index_label="Id")
 
     print("Predictions saved, all done!")
