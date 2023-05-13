@@ -14,16 +14,8 @@ from sklearn.model_selection import cross_val_score
 from sklearn.base import BaseEstimator, TransformerMixin
 from matplotlib import pyplot as plt
 import time
-torch.manual_seed(0)
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
-epochs = 10
-learning_rate = 6e-5
-num_neurons1 = 700
-num_neurons2 = 350
-num_neurons3 = 120
-alphas = np.linspace(0,100,2000)
-batch_size = 32
-vali = False
 
 
 def load_data():
@@ -45,6 +37,7 @@ def load_data():
     x_test = pd.read_csv("./task4/test_features.csv", index_col="Id").drop("smiles", axis=1)
     return x_pretrain, y_pretrain, x_train, y_train, x_test
 
+
 class LumoNet(nn.Module):
     """
     The model class, which defines our feature extractor used in pretraining.
@@ -54,14 +47,10 @@ class LumoNet(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc1 = nn.Linear(1000, num_neurons1)
-        #self.do1 = nn.Dropout(do1)
-        self.fc2 = nn.Linear(num_neurons1, num_neurons2)
-        #self.do2 = nn.Dropout(do2)
-        self.fc3 = nn.Linear(num_neurons2, num_neurons3)
-        #self.do3 = nn.Dropout(do2)
-        #self.do4 = nn.Dropout(do2)
-        self.fc4 = nn.Linear(num_neurons3, 1)
+        self.fc1 = nn.Linear(1000, 700)
+        self.fc2 = nn.Linear(700, 350)
+        self.fc3 = nn.Linear(350, 100)
+        self.fc4 = nn.Linear(100, 1)
 
 
     def forward(self, x):
@@ -74,144 +63,33 @@ class LumoNet(nn.Module):
         """
 
         x = F.relu(self.fc1(x))  
-        #x = self.do1(x)
         x = F.relu(self.fc2(x))
-        #x = self.do2(x)
         x = F.relu(self.fc3(x))
         x = self.fc4(x)
         return torch.squeeze(x)
-    
-def make_feature_extractor(x, y):
-    """
-    This function trains the feature extractor on the pretraining data and returns a function which
-    can be used to extract features from the training and test data.
 
-    input: x: np.ndarray, the features of the pretraining set
-              y: np.ndarray, the labels of the pretraining set
-                batch_size: int, the batch size used for training
-                eval_size: int, the size of the validation set
-            
-    output: make_features: function, a function which can be used to extract features from the training and test data
-    """
-    # Pretraining data loading
-    if vali:
-        x_tr, x_val, y_tr, y_val = train_test_split(x, y, train_size=0.8, random_state=42, shuffle=True)
-    else:
-        x_tr = x
-        y_tr = y
-
-    n = np.shape(x_tr)[0]
-
-    x_tr, y_tr = torch.tensor(x_tr, dtype=torch.float), torch.tensor(y_tr, dtype=torch.float)
-    if vali:
-        x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
-
-    # model declaration
-    model = LumoNet()
-    model.train()
-    model.to(device)
-  
-    criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=learning_rate) 
-
-    vali_losses = []
-    train_losses = []
-    num_batches = int(np.ceil(n/batch_size))
-
-    for epoch in range(epochs):
-        print(f'--------EPOCH {epoch}--------')
-        tic = time.perf_counter()
-
-        for l in range(num_batches):
-            start = batch_size * l
-            end = batch_size * (l + 1)
-            x_batch = x_tr[start:end, :]
-            y_batch = y_tr[start:end]
-
-            optimizer.zero_grad()
-            y_pred = model.forward(x_batch)
-            loss = criterion(y_pred, y_batch)
-            loss.backward()
-            optimizer.step()
-
-
-        with torch.no_grad():
-            model.eval()
-
-            y_pred = model.forward(x_tr)
-            train_loss = criterion(y_pred, y_tr)
-            train_losses.append(train_loss)
-            if vali:
-                y_pred = model.forward(x_val)
-                vali_loss = criterion(y_pred, y_val)
-                vali_losses.append(vali_loss)
-
-            toc = time.perf_counter()
-            print(f"train RMSE       {np.sqrt(train_loss):.4f}")
-            if vali: print(f"vali RMSE        {np.sqrt(vali_loss):.4f}")
-            print(f"elapsed minutes: {(toc-tic)/60:.1f}")
-
-        model.train()
-
-    plt.clf()
-    axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
-    if vali: axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
-
-    plt.xlabel("epoch")
-    plt.ylabel("loss")
-    plt.legend(loc="upper right")
-    plt.grid()
-    plt.ylim(0, 0.2)
-    plt.savefig(f"./task4/LUMO{learning_rate}_N{num_neurons1}_{num_neurons2}_b{batch_size}_epochs{epochs}.png")
-
-    model.eval()
-
-    def make_lumo_features(x):
-        """
-        This function extracts features from the training and test data, used in the actual pipeline 
-        after the pretraining.
-
-        input: x: np.ndarray, the features of the training or test set
-
-        output: features: np.ndarray, the features extracted from the training or test set, propagated
-        further in the pipeline
-        """
-        with torch.no_grad():
-            model.eval()
-            feature_model = nn.Sequential(*list(model.children())[:-1])
-            x = torch.tensor(x, dtype=torch.float) 
-            return feature_model.forward(x).detach().numpy()
-
-    return make_lumo_features
 
 class AE(nn.Module):
     def __init__(self):
         super().__init__()
          
         self.encoder = nn.Sequential(
-            nn.Linear(1000, 800),
+            nn.Linear(1000, 650),
             nn.ReLU(),
-            nn.Linear(800, 600),
+            nn.Linear(650, 350),
             nn.ReLU(),
-            nn.Linear(600, 400),
+            nn.Linear(350, 150),
             nn.ReLU(),
-            nn.Linear(400, 200),
-            nn.ReLU(),
-            nn.Linear(200, 100),
-
-        )
+            nn.Linear(150, 60),)
          
         self.decoder = torch.nn.Sequential(
-            torch.nn.Linear(100, 200),
+            torch.nn.Linear(60, 150),
             torch.nn.ReLU(),
-            torch.nn.Linear(200, 400),
+            torch.nn.Linear(150, 350),
             torch.nn.ReLU(),
-            torch.nn.Linear(400, 600),
+            torch.nn.Linear(350, 650),
             torch.nn.ReLU(),
-            torch.nn.Linear(600, 800),
-            torch.nn.ReLU(),
-            torch.nn.Linear(800, 1000),
-        )
+            torch.nn.Linear(650, 1000),)
  
     def forward(self, x):
         encoded = self.encoder(x)
@@ -219,42 +97,31 @@ class AE(nn.Module):
         return decoded
     
 
-def make_AE(x, vali=False):
-    """
-    This function trains the feature extractor on the pretraining data and returns a function which
-    can be used to extract features from the training and test data.
+def train_nn(model, X, Y, epochs, batch_size, lr, vali=False):
+    
+    print(f"\nStart training {type(model).__name__} bs{batch_size} lr{lr} e{epochs} V{int(vali)}")
 
-    input: x: np.ndarray, the features of the pretraining set
-                batch_size: int, the batch size used for training
-                eval_size: int, the size of the validation set
-            
-    output: make_features: function, a function which can be used to extract features from the training and test data
-    """
-    # Pretraining data loading
     if vali:
-        x_tr, x_val, y_tr, y_val = train_test_split(x, x, train_size=0.8, random_state=42, shuffle=True)
+        X_tr, X_val, Y_tr, Y_val = train_test_split(X, Y, train_size=0.8, random_state=42, shuffle=True)
     else:
-        x_tr = x
-        y_tr = x
+        X_tr = X
+        Y_tr = Y
 
-    n = np.shape(x_tr)[0]
-
-    x_tr, y_tr = torch.tensor(x_tr, dtype=torch.float), torch.tensor(y_tr, dtype=torch.float)
+    X_tr, Y_tr = torch.tensor(X_tr, dtype=torch.float), torch.tensor(Y_tr, dtype=torch.float)
     if vali:
-        x_val, y_val = torch.tensor(x_val, dtype=torch.float), torch.tensor(y_val, dtype=torch.float)
+        X_val, Y_val = torch.tensor(X_val, dtype=torch.float), torch.tensor(Y_val, dtype=torch.float)
 
-    # model declaration
-    model = AE()
     model.train()
     model.to(device)
   
     criterion = torch.nn.MSELoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4) 
+    optimizer = torch.optim.Adam(model.parameters(), lr=lr) 
 
     vali_losses = []
     train_losses = []
+    n = np.shape(X_tr)[0]
     num_batches = int(np.ceil(n/batch_size))
-    epochs = 15
+
     for epoch in range(epochs):
         print(f'--------EPOCH {epoch}--------')
         tic = time.perf_counter()
@@ -262,24 +129,24 @@ def make_AE(x, vali=False):
         for l in range(num_batches):
             start = batch_size * l
             end = batch_size * (l + 1)
-            x_batch = x_tr[start:end, :]
-            y_batch = y_tr[start:end]
+            X_batch = X_tr[start:end, :]
+            Y_batch = Y_tr[start:end]
 
             optimizer.zero_grad()
-            y_pred = model.forward(x_batch)
-            loss = criterion(y_pred, y_batch)
+            Y_pred = model.forward(X_batch)
+            loss = criterion(Y_pred, Y_batch)
             loss.backward()
             optimizer.step()
 
         with torch.no_grad():
             model.eval()
 
-            y_pred = model.forward(x_tr)
-            train_loss = criterion(y_pred, y_tr)
+            Y_pred = model.forward(X_tr)
+            train_loss = criterion(Y_pred, Y_tr)
             train_losses.append(train_loss)
             if vali:
-                y_pred = model.forward(x_val)
-                vali_loss = criterion(y_pred, y_val)
+                Y_pred = model.forward(X_val)
+                vali_loss = criterion(Y_pred, Y_val)
                 vali_losses.append(vali_loss)
 
             toc = time.perf_counter()
@@ -292,48 +159,31 @@ def make_AE(x, vali=False):
     plt.clf()
     axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
     if vali: axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
-
-    
     plt.xlabel("epoch")
     plt.ylabel("loss")
     plt.legend(loc="upper right")
     plt.grid()
     plt.ylim(0, 0.2)
-    plt.savefig(f"./task4/AE.png")
+    plt.savefig(f"./task4/{type(model).__name__}_bs{batch_size}_lr{lr}_e{epochs}_V{int(vali)}.png")
 
     model.eval()
+    return model
 
-    def make_AE_features(x):
-        """
-        This function extracts features from the training and test data, used in the actual pipeline 
-        after the pretraining.
 
-        input: x: np.ndarray, the features of the training or test set
+def make_nn_feature_func(model, AE):
 
-        output: features: np.ndarray, the features extracted from the training or test set, propagated
-        further in the pipeline
-        """
+    if AE:
+        model = model.encoder
+    else:
+        model = nn.Sequential(*list(model.children())[:-1])
+
+    def trafo(x):
+        x = torch.tensor(x, dtype=torch.float)
         with torch.no_grad():
             model.eval()
-            feature_model = model.encoder
-            x = torch.tensor(x, dtype=torch.float) 
-            return feature_model.forward(x).detach().numpy()
+            return model.forward(x).detach().numpy()
 
-    def make_enc_dec(x):
-        """
-        This function extracts features from the training and test data, used in the actual pipeline 
-        after the pretraining.
-
-        input: x: np.ndarray, the features of the training or test set
-
-        output: features: np.ndarray, the features extracted from the training or test set, propagated
-        further in the pipeline
-        """
-        model.eval()
-        x = torch.tensor(x, dtype=torch.float) 
-        return model.forward(x).detach().numpy()
-
-    return make_AE_features, make_enc_dec
+    return trafo
 
 
 def make_pretraining_class(feature_extractors):
@@ -364,38 +214,47 @@ def make_pretraining_class(feature_extractors):
     return PretrainedFeatures
 
 if __name__ == '__main__':
+
+    torch.manual_seed(1)
+    alphas = np.linspace(0,100,2000)
+
     # Load data
-    x_pretrain, y_pretrain, x_train, y_train, x_test = load_data()
+    X_pretrain, Y_pretrain, X_train, Y_train, X_test = load_data()
 
-    feature_extractor =  make_feature_extractor(x_pretrain, y_pretrain)
-    encoder, Id =  make_AE(x_pretrain)
+    lumo_net = train_nn(LumoNet(), X_pretrain, Y_pretrain, 2, 32, 5e-5, vali=True)
+    ae = train_nn(AE(), X_pretrain, X_pretrain, 2, 32, 1e-4, vali=True)
 
-    PretrainedFeatureClass = make_pretraining_class({"pretrain": feature_extractor})
-    lumo_trafo = PretrainedFeatureClass(feature_extractor="pretrain")
+    lumo_func = make_nn_feature_func(lumo_net, AE=False)
+    encoder_func = make_nn_feature_func(ae, AE=True)
 
-    x_tr_lumo = lumo_trafo.transform(x_train)
-    x_te_lumo = lumo_trafo.transform(x_test.to_numpy())
+    PretrainedFeatureClass = make_pretraining_class({"lumo": lumo_func, "ae": encoder_func})
+
+    lumo_emb = PretrainedFeatureClass(feature_extractor="lumo")
+    encoder = PretrainedFeatureClass(feature_extractor="ae")
+
+    X_tr_lumo = lumo_emb.transform(X_train)
+    X_te_lumo = lumo_emb.transform(X_test.to_numpy())
     
     scaler1 = StandardScaler()
-    x_te_lumo_s = scaler1.fit_transform(x_te_lumo)
-    x_tr_lumo_s = scaler1.transform(x_tr_lumo)
+    X_te_lumo_s = scaler1.fit_transform(X_te_lumo)
+    X_tr_lumo_s = scaler1.transform(X_tr_lumo)
 
-    x_tr_ae = encoder(x_train)
-    x_te_ae = encoder(x_test.to_numpy())
+    X_tr_ae = encoder.transform(X_train)
+    X_te_ae = encoder.transform(X_test.to_numpy())
 
-    x_tr_comb = np.hstack((x_tr_lumo, x_tr_ae))
-    x_te_comb = np.hstack((x_te_lumo, x_te_ae))
+    X_tr_comb = np.hstack((X_tr_lumo, X_tr_ae))
+    X_te_comb = np.hstack((X_te_lumo, X_te_ae))
 
     scaler2 = StandardScaler()
-    x_te_comb_s = scaler2.fit_transform(x_te_comb)
-    x_tr_comb_s = scaler2.transform(x_tr_comb)
+    X_te_comb_s = scaler2.fit_transform(X_te_comb)
+    X_tr_comb_s = scaler2.transform(X_tr_comb)
 
     RMSEs = []
 
     print("\ntraining ridge regression wo AE\n")
     for l in alphas:
         ridge_model = Ridge(alpha=l)
-        cv_scores = cross_val_score(ridge_model, x_tr_lumo_s, y_train, cv=10, scoring="neg_root_mean_squared_error")
+        cv_scores = cross_val_score(ridge_model, X_tr_lumo_s, Y_train, cv=20, scoring="neg_root_mean_squared_error")
         RMSE = -np.mean(cv_scores)
         RMSEs.append(RMSE)
 
@@ -407,21 +266,21 @@ if __name__ == '__main__':
     print("\ntraining ridge regression w AE\n")
     for l in alphas:
         ridge_model = Ridge(alpha=l)
-        cv_scores = cross_val_score(ridge_model, x_tr_comb_s, y_train, cv=20, scoring="neg_root_mean_squared_error")
+        cv_scores = cross_val_score(ridge_model, X_tr_comb_s, Y_train, cv=20, scoring="neg_root_mean_squared_error")
         RMSE = -np.mean(cv_scores)
         RMSEs.append(RMSE)
 
     j = RMSEs.index(min(RMSEs))
     print(f"\nbest RMSE and alpha  {RMSEs[j]}, {alphas[j]}")
-    """
+    
     model = Ridge(alpha=alphas[j])
 
-    model = model.fit(x_train, y_train)
+    model = model.fit(X_tr_comb_s, Y_train)
 
-    y_pred = model.predict(x_te_comb_s)
+    Y_pred = model.predict(X_te_comb_s)
 
-    assert y_pred.shape == (x_test.shape[0],)
-    y_pred = pd.DataFrame({"y": y_pred}, index=x_test.index)
-    y_pred.to_csv("./task4/results.csv", index_label="Id")
+    assert Y_pred.shape == (X_test.shape[0],)
+    Y_pred = pd.DataFrame({"y": Y_pred}, index=X_test.index)
+    Y_pred.to_csv("./task4/results.csv", index_label="Id")
     print("Predictions saved, all done!")
-    """
+    
