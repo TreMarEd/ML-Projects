@@ -17,7 +17,8 @@ from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.decomposition import PCA
 from matplotlib import pyplot as plt
 import time
-
+import warnings
+warnings.filterwarnings("ignore")
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 
@@ -222,7 +223,7 @@ def train_linear(model, X, Y):
     if model in ["ridge", "lasso"]:
 
         RMSEs = []
-        alphas = np.linspace(0,200,1000)
+        alphas = np.linspace(20,120,100)
         for l in alphas:
 
             if model == "ridge":
@@ -269,15 +270,15 @@ def train_linear(model, X, Y):
 
 
 if __name__ == '__main__':
-    
-    seed = 4
-    dim_lumo = 60
-    dim_ae = 20
-    dim_PCA = 100
-    epochs_lumo = 8
-    epochs_ae = 8
+
+    dim_lumo = 100
+    dim_ae = 100
+    dim_PCA = 200
+    epochs_lumo = 2
+    epochs_ae = 5
     lr_lumo = 5e-5
-    lr_ae = 1e-4
+    lr_ae = 3e-4
+    seed = 6
 
     torch.manual_seed(seed)
 
@@ -328,7 +329,7 @@ if __name__ == '__main__':
     X_tr_comb_poly = np.hstack((X_tr_lumo, X_tr_ae_poly))
     X_te_comb_poly = np.hstack((X_te_lumo, X_te_ae_poly))
 
-    # CREATE PCAed COMBINED LUMP + POLY AE FEATURES
+    # CREATE PCAed COMBINED LUMO + POLY AE FEATURES
     pca = PCA(n_components=dim_PCA)
     X_te_comb_poly_pca = pca.fit_transform(X_te_comb_poly)
     X_tr_comb_poly_pca = pca.transform(X_tr_comb_poly)
@@ -336,8 +337,9 @@ if __name__ == '__main__':
 
     models = {"ridge": None, "GPR": None}
 
-    features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae, "poly AE": X_tr_ae_poly, 
-                "lumo+polyAE": X_tr_comb_poly, "PCA(lump+polyAE)": X_tr_comb_poly_pca}
+    #features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae, "poly AE": X_tr_ae_poly, 
+    #           "lumo+polyAE": X_tr_comb_poly, "PCA(lump+polyAE)": X_tr_comb_poly_pca}
+    features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae}
     
     scores = pd.DataFrame(index=list(features.keys()), columns=models)
     regs = pd.DataFrame(index=list(features.keys()), columns=models)
@@ -348,12 +350,12 @@ if __name__ == '__main__':
             scores.loc[feature][model] = score
             regs.loc[feature][model] = reg
 
-    print(pca.explained_variance_ratio_, sum(pca.explained_variance_ratio_))
+    #print(pca.explained_variance_ratio_, sum(pca.explained_variance_ratio_))
     print(scores)
     print(regs)
     scores.to_csv(f"./task4/scores_dims{dim_lumo}-{dim_ae}-{dim_PCA}_E{epochs_lumo}-{epochs_ae}_lr{lr_lumo}-{lr_ae}_seed{seed}.csv")
 
-    Y_pred = regs.loc["lumo+AE"]["ridge"].predict(X_te_comb)
+    Y_pred = regs.loc["lumo+AE"]["GPR"].predict(X_te_comb)
     assert Y_pred.shape == (X_test.shape[0],)
     Y_pred = pd.DataFrame({"y": Y_pred}, index=X_test.index)
     Y_pred.to_csv("./task4/results.csv", index_label="Id")
