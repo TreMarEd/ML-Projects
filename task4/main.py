@@ -127,7 +127,7 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False):
     num_batches = int(np.ceil(n/batch_size))
 
     for epoch in range(epochs):
-        print(f'--------EPOCH {epoch}--------')
+        print(f'--------EPOCH {epoch+1}--------')
         tic = time.perf_counter()
 
         for l in range(num_batches):
@@ -161,8 +161,8 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False):
         model.train()
 
     plt.clf()
-    axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
-    if vali: axes = plt.plot([i for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
+    axes = plt.plot([i+1 for i in range(epochs)], [np.sqrt(item.item()) for item in train_losses], 'b-', label="RMSE train")
+    if vali: axes = plt.plot([i+1 for i in range(epochs)], [np.sqrt(item.item()) for item in vali_losses], 'g-', label="RMSE vali")
     plt.xlabel("epoch")
     plt.ylabel("loss")
     plt.legend(loc="upper right")
@@ -273,7 +273,7 @@ if __name__ == '__main__':
 
     dim_lumo = 100
     dim_ae = 100
-    dim_PCA = 200
+    dim_PCA = 100
     epochs_lumo = 2
     epochs_ae = 5
     lr_lumo = 5e-5
@@ -317,7 +317,7 @@ if __name__ == '__main__':
     X_te_comb = np.hstack((X_te_lumo, X_te_ae))
 
     # CREATE POLY AE FEATURES 
-    poly = PolynomialFeatures(2)
+    poly = PolynomialFeatures(2,  interaction_only=True)
     X_tr_ae_poly = poly.fit_transform(X_tr_ae)
     X_te_ae_poly = poly.fit_transform(X_te_ae)
 
@@ -339,7 +339,7 @@ if __name__ == '__main__':
 
     #features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae, "poly AE": X_tr_ae_poly, 
     #           "lumo+polyAE": X_tr_comb_poly, "PCA(lump+polyAE)": X_tr_comb_poly_pca}
-    features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae}
+    features = {"lumo+AE": X_tr_comb}
     
     scores = pd.DataFrame(index=list(features.keys()), columns=models)
     regs = pd.DataFrame(index=list(features.keys()), columns=models)
