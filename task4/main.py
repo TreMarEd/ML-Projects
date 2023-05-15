@@ -51,9 +51,9 @@ class LumoNet(nn.Module):
         The constructor of the model.
         """
         super().__init__()
-        self.fc1 = nn.Linear(1000, 700)
-        self.fc2 = nn.Linear(700, 350)
-        self.fc3 = nn.Linear(350, dim)
+        self.fc1 = nn.Linear(200, 170)
+        self.fc2 = nn.Linear(170, 130)
+        self.fc3 = nn.Linear(130, dim)
         self.fc4 = nn.Linear(dim, 1)
 
 
@@ -272,9 +272,9 @@ def train_linear(model, X, Y):
 if __name__ == '__main__':
 
     dim_lumo = 100
-    dim_ae = 100
+    dim_ae = 200
     dim_PCA = 100
-    epochs_lumo = 2
+    epochs_lumo = 30
     epochs_ae = 5
     lr_lumo = 5e-5
     lr_ae = 3e-4
@@ -285,32 +285,37 @@ if __name__ == '__main__':
     # Load data
     X_pretrain, Y_pretrain, X_train, Y_train, X_test = load_data()
 
-    lumo_net = train_nn(LumoNet(dim=dim_lumo), X_pretrain, Y_pretrain, epochs_lumo, 32, lr_lumo, vali=False)
-    ae = train_nn(AE(dim=dim_ae), np.vstack((X_pretrain, X_test)), np.vstack((X_pretrain, X_test)), epochs_ae, 32, lr_ae, vali=False)
-
-    lumo_func = make_nn_feature_func(lumo_net, AE=False)
+    ae = train_nn(AE(dim=dim_ae), np.vstack((X_pretrain, X_test)), np.vstack((X_pretrain, X_test)), epochs_ae, 32, lr_ae, vali=True)
     encoder_func = make_nn_feature_func(ae, AE=True)
 
-    PretrainedFeatureClass = make_pretraining_class({"lumo": lumo_func, "ae": encoder_func})
+    PretrainedFeatureClass = make_pretraining_class({"ae": encoder_func})
 
-    lumo_emb = PretrainedFeatureClass(feature_extractor="lumo")
     encoder = PretrainedFeatureClass(feature_extractor="ae")
 
+    # CREATE AE FEATURES
+    X_tr_ae = encoder.transform(X_train)
+    X_te_ae = encoder.transform(X_test.to_numpy())
+    X_pretr_ae = encoder.transform(X_pretrain)
+
+    scaler2 = StandardScaler()
+    X_te_ae = scaler2.fit_transform(X_te_ae)
+    X_tr_ae = scaler2.transform(X_tr_ae)
+    X_pretr_ae = scaler2.transform(X_pretr_ae)
+
     # CREATE LUMO FEATURES
-    X_tr_lumo = lumo_emb.transform(X_train)
-    X_te_lumo = lumo_emb.transform(X_test.to_numpy())
+    lumo_net = train_nn(LumoNet(dim=dim_lumo), X_pretr_ae, Y_pretrain, epochs_lumo, 32, lr_lumo, vali=True)
+    lumo_func = make_nn_feature_func(lumo_net, AE=False)
+
+    PretrainedFeatureClass = make_pretraining_class({"lumo": lumo_func, "ae": encoder_func})
+    lumo_emb = PretrainedFeatureClass(feature_extractor="lumo")
+
+    X_tr_lumo = lumo_emb.transform(X_tr_ae)
+    X_te_lumo = lumo_emb.transform(X_te_ae)
     
     scaler1 = StandardScaler()
     X_te_lumo = scaler1.fit_transform(X_te_lumo)
     X_tr_lumo = scaler1.transform(X_tr_lumo)
 
-    # CREATE AE FEATURES
-    X_tr_ae = encoder.transform(X_train)
-    X_te_ae = encoder.transform(X_test.to_numpy())
-
-    scaler2 = StandardScaler()
-    X_te_ae = scaler2.fit_transform(X_te_ae)
-    X_tr_ae = scaler2.transform(X_tr_ae)
 
     # CREATE COMBINED LUMO + AE FEATURES
     X_tr_comb = np.hstack((X_tr_lumo, X_tr_ae))
@@ -337,9 +342,9 @@ if __name__ == '__main__':
 
     models = {"ridge": None, "GPR": None}
 
-    #features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae, "poly AE": X_tr_ae_poly, 
-    #           "lumo+polyAE": X_tr_comb_poly, "PCA(lump+polyAE)": X_tr_comb_poly_pca}
-    features = {"lumo+AE": X_tr_comb}
+    features = {"lumo": X_tr_lumo, "lumo+AE": X_tr_comb, "AE": X_tr_ae, "poly AE": X_tr_ae_poly, 
+               "lumo+polyAE": X_tr_comb_poly, "PCA(lump+polyAE)": X_tr_comb_poly_pca}
+    #features = {"lumo+AE": X_tr_comb}
     
     scores = pd.DataFrame(index=list(features.keys()), columns=models)
     regs = pd.DataFrame(index=list(features.keys()), columns=models)
