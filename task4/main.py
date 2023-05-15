@@ -278,7 +278,7 @@ if __name__ == '__main__':
     epochs_ae = 5
     lr_lumo = 5e-5
     lr_ae = 3e-4
-    seed = 6
+    seed = 482
 
     torch.manual_seed(seed)
 
@@ -358,7 +358,7 @@ if __name__ == '__main__':
     Y_pred = regs.loc["lumo+AE"]["GPR"].predict(X_te_comb)
     assert Y_pred.shape == (X_test.shape[0],)
     Y_pred = pd.DataFrame({"y": Y_pred}, index=X_test.index)
-    Y_pred.to_csv("./task4/results.csv", index_label="Id")
+    Y_pred.to_csv(f"./task4/results.csv", index_label="Id")
     print("Predictions saved, all done!")
     
     
