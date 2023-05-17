@@ -1,6 +1,10 @@
-# This serves as a template which will guide you through the implementation of this task.  It is advised
-# to first read the whole template and get a sense of the overall structure of the code before trying to fill in any of the TODO gaps
-# First, we import necessary libraries:
+"""
+The following script solves project 4 of the Introduction to Machine Learning 2023 lecture at ETH. The task is to predict the 
+LUMO-HOMO energy gap of a molecule based on features extracted from its SMILE string using rdkit. This energy gap is relevant for the 
+manufacturing of photovoltaic materials. Only 100 datapoints with LUMO-HOMO-gap labels are available. However, also a large dataset 
+with LUMO energy lables is provided. The goal is to apply transfer learning from the LUMO problem to the LUMO-HOMO gap problem by 
+training embeddings and an autoencoder.
+"""
 import pandas as pd
 import numpy as np
 import torch
@@ -13,7 +17,6 @@ from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import RationalQuadratic
 from matplotlib import pyplot as plt
 import time
-
 torch.manual_seed(482)
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
@@ -40,11 +43,12 @@ def load_data():
 
 class LumoNet(nn.Module):
     """
-    The model class, which defines our feature extractor used in pretraining.
+    Model class used to predict LUMO-energies. Later in the pipeline the embeddings learned from this problem will be used to solve
+    the LUMO-HOMO gap prediction problem.
     """
     def __init__(self, dim):
         """
-        The constructor of the model.
+        input:  dim: integer, dimension of the embeddings to be used for the LUMO-HOMO gap prediction.
         """
         super().__init__()
         self.fc1 = nn.Linear(1000, 700)
@@ -57,7 +61,7 @@ class LumoNet(nn.Module):
         """
         The forward pass of the model.
 
-        input: x: torch.Tensor, the input to the model
+        input:  x: torch.Tensor, the input to the model
 
         output: x: torch.Tensor, the output of the model
         """
@@ -70,11 +74,11 @@ class LumoNet(nn.Module):
 
 class AE(nn.Module):
     """
-    The model class, which defines our feature extractor used in pretraining.
+    Model class used to train an autoencoder on the pretraining data.
     """
     def __init__(self, dim):
         """
-        The constructor of the model.
+        input:  dim: integer, dimension to which the dimensionality of the features is to be reduced
         """
         super().__init__()
          
@@ -111,15 +115,18 @@ class AE(nn.Module):
 
 def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
     """
-    This function loads the data from the csv files and returns it as numpy arrays.
+    Trains a torch neural network and returns the trained model. Also prints and plots the learning curve if specified.
 
-    input: None
+    input:  model: neural network instance of a torch.nn.Module child class
+            X: np.array, input features
+            Y: np.array, input labels
+            epochs: int, number of epochs with which the network should be trained
+            batch_size: int, batch size to be used during optimization
+            lr: float, learning rate to be used by the optimizer
+            vali: bool, states whether to perform a training validation split
+            plot: bool, states whether to plot the learning curve
     
-    output: x_pretrain: np.ndarray, the features of the pretraining set
-            y_pretrain: np.ndarray, the labels of the pretraining set
-            x_train: np.ndarray, the features of the training set
-            y_train: np.ndarray, the labels of the training set
-            x_test: np.ndarray, the features of the test set
+    output: model, trained neural network instance of a torch.nn.Module child class 
     """
     
     print(f"\nStart training {type(model).__name__} bs{batch_size} lr{lr} e{epochs} V{int(vali)}")
@@ -143,9 +150,10 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
 
     vali_losses = []
     train_losses = []
+    
     n = np.shape(X_tr)[0]
     num_batches = int(np.ceil(n/batch_size))
-
+    
     for epoch in range(epochs):
         print(f'--------EPOCH {epoch+1}--------')
         tic = time.perf_counter()
@@ -162,6 +170,7 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
             loss.backward()
             optimizer.step()
 
+        # after each epoch calculate the training loss and if specified the validation loss
         with torch.no_grad():
             model.eval()
 
@@ -181,6 +190,7 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
 
         model.train()
 
+    # plot the learning curve
     if plot:
         plt.clf()
 
@@ -201,15 +211,13 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
 
 def make_nn_feature_trafo(model, AE):
     """
-    This function loads the data from the csv files and returns it as numpy arrays.
+    Derives a feature transformation based on an input neural network. If the model is an autoencoder then the encoder will be 
+    extracted. Otherwise the embeddings learned by the second last layer are extracted.
 
-    input: None
-    
-    output: x_pretrain: np.ndarray, the features of the pretraining set
-            y_pretrain: np.ndarray, the labels of the pretraining set
-            x_train: np.ndarray, the features of the training set
-            y_train: np.ndarray, the labels of the training set
-            x_test: np.ndarray, the features of the test set
+    input:  model: neural network instance of a torch.nn.Module child class
+            AE: bool, states whether the model is an autoencoder. If yes the encoder otherwise the embeddings are extracted
+        
+    output: trafo, a function mapping numpy arrays to the feature transformed numpy array
     """
 
     if AE:
@@ -249,28 +257,27 @@ if __name__ == '__main__':
     lumo_emb = make_nn_feature_trafo(lumo_net, AE=False)
     encoder = make_nn_feature_trafo(ae, AE=True)
 
-    # create lumo features
+    # create lumo features for both training and test data
     X_tr_lumo = lumo_emb(X_tr)
     X_te_lumo = lumo_emb(X_te.to_numpy())
     scaler1 = StandardScaler()
     X_te_lumo = scaler1.fit_transform(X_te_lumo)
     X_tr_lumo = scaler1.transform(X_tr_lumo)
 
-    # create autoencoder features
+    # create autoencoder features for both training and test data
     X_tr_ae = encoder(X_tr)
     X_te_ae = encoder(X_te.to_numpy())
     scaler2 = StandardScaler()
     X_te_ae = scaler2.fit_transform(X_te_ae)
     X_tr_ae = scaler2.transform(X_tr_ae)
 
-    # create combined lumo and autoencoder features
+    # create combined lumo and autoencoder features for both training and test data
     X_tr_comb = np.hstack((X_tr_lumo, X_tr_ae))
     X_te_comb = np.hstack((X_te_lumo, X_te_ae))
 
-    # cross validate and fit kernelized gaussian process
+    # cross validate and fit kernelized gaussian process on training data
     kernel = RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))
     gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
-
     score = -np.mean(cross_val_score(gpr, X_tr_comb, Y_tr, cv=20, scoring="neg_root_mean_squared_error"))
     print(f"\n CV-RMSE: {score}\n")
 
