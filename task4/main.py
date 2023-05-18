@@ -1,9 +1,9 @@
 """
-The following script solves project 4 of the Introduction to Machine Learning 2023 lecture at ETH. The task is to predict the 
-LUMO-HOMO energy gap of a molecule based on features extracted from its SMILE string using rdkit. This energy gap is relevant for the 
-manufacturing of photovoltaic materials. Only 100 datapoints with LUMO-HOMO-gap labels are available. However, also a large dataset 
-with LUMO energy lables is provided. The goal is to apply transfer learning from the LUMO problem to the LUMO-HOMO gap problem by 
-training embeddings and an autoencoder.
+The following script solves project 4 of the Introduction to Machine Learning 2023 course at ETH. The task is to predict the 
+LUMO-HOMO energy gap of a molecule based on features extracted from its SMILE string using the rdkit package. This energy gap 
+is relevant for the manufacturing of photovoltaic materials. Only 100 datapoints with HOMO-LUMO-gap labels are available. 
+However, also a large dataset with LUMO energy labels is provided. The goal is to apply transfer learning from the LUMO problem 
+to the HOMO-LUMO gap problem by training embeddings and an autoencoder.
 """
 import pandas as pd
 import numpy as np
@@ -123,7 +123,7 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
             epochs: int, number of epochs with which the network should be trained
             batch_size: int, batch size to be used during optimization
             lr: float, learning rate to be used by the optimizer
-            vali: bool, states whether to perform a training validation split
+            vali: bool, states whether to perform a training/validation split
             plot: bool, states whether to plot the learning curve
     
     output: model, trained neural network instance of a torch.nn.Module child class 
@@ -209,21 +209,22 @@ def train_nn(model, X, Y, epochs, batch_size, lr, vali=False, plot=True):
     return model
 
 
-def make_nn_feature_trafo(model, AE):
+def make_nn_feature_trafo(model, layer=None):
     """
     Derives a feature transformation based on an input neural network. If the model is an autoencoder then the encoder will be 
-    extracted. Otherwise the embeddings learned by the second last layer are extracted.
+    extracted. Otherwise the embeddings learned by the layer with index "layer" are extracted.
 
     input:  model: neural network instance of a torch.nn.Module child class
-            AE: bool, states whether the model is an autoencoder. If yes the encoder otherwise the embeddings are extracted
+            layer: int, indicates the index of the layer from which the features should be extracted if model is not an autoencoder
         
     output: trafo, a function mapping numpy arrays to the feature transformed numpy array
     """
 
-    if AE:
+    if type(model).__name__ == "AE":
         model = model.encoder
     else:
-        model = nn.Sequential(*list(model.children())[:-1])
+        assert layer is not None
+        model = nn.Sequential(*list(model.children())[:layer])
 
     def trafo(x):
         x = torch.tensor(x, dtype=torch.float)
@@ -254,8 +255,8 @@ if __name__ == '__main__':
     ae = train_nn(AE(dim=dim_ae), np.vstack((X_pretr, X_te)), np.vstack((X_pretr, X_te)), epochs_ae, batch_size, lr_ae, vali=False)
 
     # extract feature transformations from the nns
-    lumo_emb = make_nn_feature_trafo(lumo_net, AE=False)
-    encoder = make_nn_feature_trafo(ae, AE=True)
+    lumo_emb = make_nn_feature_trafo(lumo_net, layer=-1)
+    encoder = make_nn_feature_trafo(ae)
 
     # create lumo features for both training and test data
     X_tr_lumo = lumo_emb(X_tr)
