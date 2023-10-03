@@ -1,5 +1,6 @@
 """
-This script solves task 0 of the Intro to ML lecture at ETH. The task consists of training a predictor R^10 -> R on some 
+This script solves dummy task 0 of the Advanced ML lecture at ETH. It is the same as in the intro ML course
+such that I recyle my script from there. The task consists of training a predictor R^10 -> R on some 
 provided training data. The solution is known to be the mean of the input data, such that a simple linear regression will 
 solve the prediction problem trivially and exactly up to machine precision. Implemented a model selection workflow for 
 sklearn-linear-models with feature transformation and feature rescaling: 13 different models are generated evaluated and  
@@ -34,7 +35,7 @@ class Model:
         self.cv_score = None
 
 
-def select_model(candidate_models, x, y, scoring_function="neg_root_mean_squared_error", cv=10):
+def select_model(candidate_models, x, y, scoring_function="neg_mean_squared_error", cv=10):
     """
     Given a multitude of candidate models returns the name of the model with the best CV score and prints the scores. 
 
@@ -92,7 +93,7 @@ def trafo_scale_features(x, feature_trafo):
 if __name__ == "__main__":
 
     # IMPORT AND PREPARE TRAINING DATA
-    train = pd.read_csv("./task 0/Input/train.csv")
+    train = pd.read_csv("./AdvancedML/task 0/Input/train.csv")
     # drop labels and IDs
     x_train = train.iloc[:, 2:]
     # drop features and IDs
@@ -123,13 +124,13 @@ if __name__ == "__main__":
 
     # MODEL PREDICTION AND RESULT OUTPUT
     # test data set without labels, predictions on this data set will be submitted for the project
-    test = pd.read_csv("./task 0/Input/test.csv")
+    test = pd.read_csv("./AdvancedML/task 0/Input/test.csv")
 
     # submission template, to be overwritten with solution for hand-in
-    sample = pd.read_csv("./task 0/Input/sample.csv")
+    sample = pd.read_csv("./AdvancedML/task 0/Input/sample.csv")
 
     x_predict = test.iloc[:, 1:]
     x_predict_trafo = trafo_scale_features(x_predict, best_model.feature_trafo)
 
     sample["y"] = best_model.sklearn_object.predict(x_predict_trafo)
-    sample.to_csv("./task 0/result.csv", index=False)
+    sample.to_csv("./AdvancedML/task 0/result.csv", index=False)
