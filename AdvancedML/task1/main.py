@@ -67,7 +67,7 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-10, 10000000.0), alpha_bounds=(1e-10, 100000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=DotProduct(sigma_0_bounds=(1e-08, 100000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=Matern(length_scale=0.3, nu=1.5, length_scale_bounds=(1e-12, 1000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    imp = KNNImputer(n_neighbors=3, weights="distance")
+    imp = KNNImputer(n_neighbors=3, weights="uniform")
     imp.fit(X_imp)
 
     print("\nIMPUTING TRAIN AND TEST DATA\n")
