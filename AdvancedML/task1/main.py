@@ -5,14 +5,17 @@
 import numpy as np
 import pandas as pd
 from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer
+from sklearn.impute import IterativeImputer, KNNImputer
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic, WhiteKernel
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
+from sklearn.preprocessing import StandardScaler
+import time
 
 
-def data_preprocessing(alpha=1e-8, seed=5, restarts=1, max_iter=5, kernel=Matern(length_scale=0.3, nu=0.3, length_scale_bounds=(1e-08, 100000.0))):
+
+def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern(length_scale=0.3, nu=0.4, length_scale_bounds=(1e-12, 1000000.0))):
     """
     This function loads the training and test data, preprocesses it, removes the NaN values and interpolates the missing 
     data using the iterative imputer provided by sklearn using a Gaussian Process Regressor.
@@ -39,21 +42,40 @@ def data_preprocessing(alpha=1e-8, seed=5, restarts=1, max_iter=5, kernel=Matern
     X_test = pd.read_csv("./AdvancedML//task1/data/X_test.csv")
 
     # TODO:delete ids
+    X_train = X_train.drop('id', axis=1)
+    y_train = y_train.drop('id', axis=1)
+    X_test = X_test.drop('id', axis=1)
+    
 
     # TODO: outlier detection
     #print("\nPERFORMING OUTLIER DETECTION\n")
 
+    # data scaling
+    scaler = StandardScaler()
+    scaler.fit(X_train)
+    X_train = scaler.transform(X_train)
+    X_test = scaler.transform(X_test)
+
     print("\nTRAINING IMPUTER\n")
     # train imputer on both train and test features
-    X_imp = pd.concat([X_train, X_test])
+    X_imp = np.vstack([X_train, X_test])
+
+    #X_imp = X_train
     # only partial data for testing purposes
-    X_imp = X_imp.iloc[:20, :]
-    imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    #X_imp = X_imp[:70, :]
+    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-10, 10000000.0), alpha_bounds=(1e-10, 100000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=DotProduct(sigma_0_bounds=(1e-08, 100000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=Matern(length_scale=0.3, nu=1.5, length_scale_bounds=(1e-12, 1000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    imp = KNNImputer(n_neighbors=2, weights="uniform")
+    t0 = time.time()
     imp.fit(X_imp)
+    t1 = time.time()
+    print("time it took to train imputer:", (t1-t0)/60)
 
     print("\nIMPUTING TRAIN AND TEST DATA\n")
-    X_train = imp.transform(X_train)
-    X_test = imp.transform(X_test)
+    X_train_imp = imp.transform(X_train)
+    X_test_imp = imp.transform(X_test)
 
     # TODO: feature selection via PCA or CCA
     #print("\nPERFORMING DIMENSIONALITY REDUCTION\n")
@@ -64,7 +86,7 @@ def data_preprocessing(alpha=1e-8, seed=5, restarts=1, max_iter=5, kernel=Matern
     y_prior = np.mean(y_train["y"])
     y_train = y_train["y"].subtract(y_prior).to_numpy()
 
-    return X_train, X_test, y_train, y_prior
+    return X_train_imp, X_test_imp, y_train, y_prior
 
 
 def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
@@ -86,10 +108,11 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     # initialize cv_score for each kernel, best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
     best_kernel = None
-    best_score = 0
+    best_score = -1000
 
     for kernel in kernels:
         gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+        print("\nTRAINING THE FOLLOWING KERNEL", str(kernel), "\n")
         score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
         cv_scores.loc[str(kernel), "CV_score"] = score
 
