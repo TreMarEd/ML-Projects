@@ -67,7 +67,7 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-10, 10000000.0), alpha_bounds=(1e-10, 100000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=DotProduct(sigma_0_bounds=(1e-08, 100000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=Matern(length_scale=0.3, nu=1.5, length_scale_bounds=(1e-12, 1000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    imp = KNNImputer(n_neighbors=2, weights="uniform")
+    imp = KNNImputer(n_neighbors=3, weights="distance")
     imp.fit(X_imp)
 
     print("\nIMPUTING TRAIN AND TEST DATA\n")
@@ -110,7 +110,7 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     y_test: array of floats: dim = (100,), predictions on test set
     """
 
-    alpha = 1e-10
+    alpha = 1
 
     # initialize cv_score for each kernel, best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
@@ -145,9 +145,9 @@ if __name__ == "__main__":
 
     X_train, X_test, y_train, y_prior = data_preprocessing()
 
-    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)),
+    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0))
                #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)),
-               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))#,
+               #RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))#,
                #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))
                ]
 
