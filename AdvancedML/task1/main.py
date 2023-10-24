@@ -52,22 +52,22 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
 
     # data scaling
     scaler = StandardScaler()
-    scaler.fit(X_train)
+    scaler.fit(np.vstack([X_train, X_test]))
     X_train = scaler.transform(X_train)
     X_test = scaler.transform(X_test)
 
     print("\nTRAINING IMPUTER\n")
     # train imputer on both train and test features
-    X_imp = np.vstack([X_train, X_test])
+    X_imp = np.vstack([X_train])
 
     #X_imp = X_train
     # only partial data for testing purposes
     #X_imp = X_imp[:70, :]
-    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
+    imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-10, 10000000.0), alpha_bounds=(1e-10, 100000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=DotProduct(sigma_0_bounds=(1e-08, 100000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=Matern(length_scale=0.3, nu=1.5, length_scale_bounds=(1e-12, 1000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    imp = KNNImputer(n_neighbors=3, weights="uniform")
+    #imp = KNNImputer(n_neighbors=3, weights="uniform")
     imp.fit(X_imp)
 
     print("\nIMPUTING TRAIN AND TEST DATA\n")
