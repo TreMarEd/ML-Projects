@@ -11,6 +11,8 @@ from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQu
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
+import matplotlib.pyplot as plt
 import time
 
 
@@ -41,11 +43,9 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     # Load test features
     X_test = pd.read_csv("./AdvancedML//task1/data/X_test.csv")
 
-    # TODO:delete ids
     X_train = X_train.drop('id', axis=1)
     y_train = y_train.drop('id', axis=1)
     X_test = X_test.drop('id', axis=1)
-    
 
     # TODO: outlier detection
     #print("\nPERFORMING OUTLIER DETECTION\n")
@@ -68,17 +68,22 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=DotProduct(sigma_0_bounds=(1e-08, 100000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=Matern(length_scale=0.3, nu=1.5, length_scale_bounds=(1e-12, 1000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
     imp = KNNImputer(n_neighbors=2, weights="uniform")
-    t0 = time.time()
     imp.fit(X_imp)
-    t1 = time.time()
-    print("time it took to train imputer:", (t1-t0)/60)
 
     print("\nIMPUTING TRAIN AND TEST DATA\n")
     X_train_imp = imp.transform(X_train)
     X_test_imp = imp.transform(X_test)
 
-    # TODO: feature selection via PCA or CCA
-    #print("\nPERFORMING DIMENSIONALITY REDUCTION\n")
+    print("\nPERFORMING DIMENSIONALITY REDUCTION\n")
+    pca = PCA(n_components=0.20, svd_solver="full")
+    X_pca = np.vstack([X_train_imp, X_test_imp])
+    pca.fit(X_pca)
+    X_train_pca = pca.transform(X_train_imp)
+    X_test_pca = pca.transform(X_test_imp)
+
+    #plt.plot([x+1 for x in range(len(pca.explained_variance_ratio_))], pca.explained_variance_ratio_, 'r-')
+    #plt.show()
+    print("NEW FEATURE DIM:", np.shape(X_train_pca)[1])
 
     # GPR by default assumes gaussian prior with mean zero, the predictor prior hence predicts every patients age as 0 
     # and hence ascribes significantly probability to nonsensical negative values. Prior knowledge of patients age can
@@ -86,7 +91,7 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     y_prior = np.mean(y_train["y"])
     y_train = y_train["y"].subtract(y_prior).to_numpy()
 
-    return X_train_imp, X_test_imp, y_train, y_prior
+    return X_train_pca, X_test_pca, y_train, y_prior
 
 
 def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
@@ -105,13 +110,15 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     y_test: array of floats: dim = (100,), predictions on test set
     """
 
+    alpha = 1e-10
+
     # initialize cv_score for each kernel, best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
     best_kernel = None
     best_score = -1000
 
     for kernel in kernels:
-        gpr = GaussianProcessRegressor(kernel=kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+        gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=3, random_state=5)
         print("\nTRAINING THE FOLLOWING KERNEL", str(kernel), "\n")
         score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
         cv_scores.loc[str(kernel), "CV_score"] = score
@@ -124,7 +131,7 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     print(cv_scores)
     print("\nTHE BEST KERNEL IS ", str(best_kernel), ". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
 
-    gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=1e-8, n_restarts_optimizer=3, random_state=5)
+    gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=3, random_state=5)
     gpr.fit(X_train, y_train)
     y_pred = gpr.predict(X_test)
 
@@ -138,11 +145,11 @@ if __name__ == "__main__":
 
     X_train, X_test, y_train, y_prior = data_preprocessing()
 
-    kernels = [DotProduct(),
-               RBF(),
-               Matern(length_scale=0.3, nu=0.3,
-                      length_scale_bounds=(1e-08, 100000.0)),
-               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 100000.0))]
+    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)),
+               #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)),
+               RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))#,
+               #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))
+               ]
 
     y_pred = modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels)
 
