@@ -76,20 +76,27 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     X_test_scaled = scaler.transform(X_test_imp)
 
     print("\nPERFORMING DIMENSIONALITY REDUCTION\n")
-    pca = PCA(n_components=9, svd_solver="full")
-    pca.fit(np.vstack([X_train_scaled, X_test_scaled]))
-    X_train_pca = pca.transform(X_train_scaled)
-    X_test_pca = pca.transform(X_test_scaled)
-
-    #cca = CCA(n_components=1)
-    #cca.fit(X, Y)
-    #X_c, Y_c = cca.transform(X, Y)
-
+    
+    #pca = PCA(n_components=9, svd_solver="full")
+    #pca.fit(np.vstack([X_train_scaled, X_test_scaled]))
+    #X_test_pca = pca.transform(X_test_scaled)
+    ##X_train_pca = pca.transform(X_train_scaled)
     #plt.plot([x+1 for x in range(len(pca.explained_variance_ratio_))], pca.explained_variance_ratio_, 'r-')
     #plt.show()
-    print("NEW FEATURE DIM:", np.shape(X_train_pca)[1])
+    #print("NEW FEATURE DIM:", np.shape(X_train_pca)[1])
+    #return X_train_pca, X_test_pca, y_train, y_prior
 
-    return X_train_pca, X_test_pca, y_train, y_prior
+    cca = CCA(n_components=1)
+    cca.fit(X_train_scaled, y_train)
+    abs_loadings=np.abs(cca.x_loadings_)
+    num_features = 30
+    indices = sorted(range(len(abs_loadings)), key=lambda x: abs_loadings[x])[-num_features:]
+    X_train_cca = X_train_scaled[:, indices]
+    X_test_cca = X_test_scaled[:, indices]
+
+    print("NEW FEATURE DIM:", np.shape(X_train_cca)[1])
+    return X_train_cca, X_test_cca, y_train, y_prior 
+    
 
 
 def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
@@ -143,9 +150,10 @@ if __name__ == "__main__":
 
     X_train, X_test, y_train, y_prior = data_preprocessing()
 
-    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0)) #44.9 R^2, pca 9 componetns
-               #Matern(length_scale=0.3, nu=0.2, length_scale_bounds=(1e-12, 1000000.0)) #44.88% R^2, pca 9 components
-               #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0))
+    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0)), #44.9 R^2, pca 9 componetns
+               Matern(length_scale=0.3, nu=0.2, length_scale_bounds=(1e-12, 1000000.0)) #44.88% R^2, pca 9 components
+               #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)),
+               #DotProduct()
                #RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))#,
                #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))
                ]
