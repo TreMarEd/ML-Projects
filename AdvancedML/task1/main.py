@@ -5,13 +5,15 @@
 import numpy as np
 import pandas as pd
 from sklearn.experimental import enable_iterative_imputer
-from sklearn.impute import IterativeImputer, KNNImputer
+from sklearn.impute import IterativeImputer, KNNImputer, SimpleImputer
 from sklearn.gaussian_process import GaussianProcessRegressor
 from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic, WhiteKernel
 from sklearn.metrics import r2_score
 from sklearn.model_selection import cross_val_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
+from sklearn.cross_decomposition import CCA
+from sklearn.ensemble import IsolationForest
 import matplotlib.pyplot as plt
 import time
 
@@ -47,49 +49,45 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     y_train = y_train.drop('id', axis=1)
     X_test = X_test.drop('id', axis=1)
 
-    # TODO: outlier detection
-    #print("\nPERFORMING OUTLIER DETECTION\n")
-
-    # data scaling
-    scaler = StandardScaler()
-    scaler.fit(np.vstack([X_train, X_test]))
-    X_train = scaler.transform(X_train)
-    X_test = scaler.transform(X_test)
-
-    print("\nTRAINING IMPUTER\n")
-    # train imputer on both train and test features
-    X_imp = np.vstack([X_train])
-
-    #X_imp = X_train
-    # only partial data for testing purposes
-    #X_imp = X_imp[:70, :]
-    imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-10, 10000000.0), alpha_bounds=(1e-10, 100000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=DotProduct(sigma_0_bounds=(1e-08, 100000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    #imp = IterativeImputer(estimator=GaussianProcessRegressor(kernel=Matern(length_scale=0.3, nu=1.5, length_scale_bounds=(1e-12, 1000000.0)), alpha=alpha, n_restarts_optimizer=restarts, random_state=seed), max_iter=max_iter)
-    #imp = KNNImputer(n_neighbors=3, weights="uniform")
-    imp.fit(X_imp)
-
-    print("\nIMPUTING TRAIN AND TEST DATA\n")
-    X_train_imp = imp.transform(X_train)
-    X_test_imp = imp.transform(X_test)
-
-    print("\nPERFORMING DIMENSIONALITY REDUCTION\n")
-    pca = PCA(n_components=0.20, svd_solver="full")
-    X_pca = np.vstack([X_train_imp, X_test_imp])
-    pca.fit(X_pca)
-    X_train_pca = pca.transform(X_train_imp)
-    X_test_pca = pca.transform(X_test_imp)
-
-    #plt.plot([x+1 for x in range(len(pca.explained_variance_ratio_))], pca.explained_variance_ratio_, 'r-')
-    #plt.show()
-    print("NEW FEATURE DIM:", np.shape(X_train_pca)[1])
-
     # GPR by default assumes gaussian prior with mean zero, the predictor prior hence predicts every patients age as 0 
     # and hence ascribes significantly probability to nonsensical negative values. Prior knowledge of patients age can
     # be incorporated by subtracting mean patient age from labels and then adding again after prediction
     y_prior = np.mean(y_train["y"])
     y_train = y_train["y"].subtract(y_prior).to_numpy()
+
+    print("\nIMPUTING DATA\n")
+    # train imputer on both train and test features
+    imp = SimpleImputer(strategy='median')
+    imp.fit(np.vstack([X_train, X_test]))
+    X_train_imp = imp.transform(X_train.to_numpy())
+    X_test_imp = imp.transform(X_test.to_numpy())
+
+    print("\nPERFORMING OUTLIER DETECTION\n")
+    isofor = IsolationForest(random_state=0)
+    pred = isofor.fit_predict(X_train_imp)
+    X_train_imp = X_train_imp[pred==1]
+    y_train = y_train[pred==1]
+
+    # data scaling
+    scaler = StandardScaler()
+    #scaler = MinMaxScaler()
+    scaler.fit(np.vstack([X_train_imp, X_test_imp]))
+    X_train_scaled = scaler.transform(X_train_imp)
+    X_test_scaled = scaler.transform(X_test_imp)
+
+    print("\nPERFORMING DIMENSIONALITY REDUCTION\n")
+    pca = PCA(n_components=9, svd_solver="full")
+    pca.fit(np.vstack([X_train_scaled, X_test_scaled]))
+    X_train_pca = pca.transform(X_train_scaled)
+    X_test_pca = pca.transform(X_test_scaled)
+
+    #cca = CCA(n_components=1)
+    #cca.fit(X, Y)
+    #X_c, Y_c = cca.transform(X, Y)
+
+    #plt.plot([x+1 for x in range(len(pca.explained_variance_ratio_))], pca.explained_variance_ratio_, 'r-')
+    #plt.show()
+    print("NEW FEATURE DIM:", np.shape(X_train_pca)[1])
 
     return X_train_pca, X_test_pca, y_train, y_prior
 
@@ -110,7 +108,7 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     y_test: array of floats: dim = (100,), predictions on test set
     """
 
-    alpha = 1
+    alpha = 1e-3
 
     # initialize cv_score for each kernel, best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
@@ -118,7 +116,7 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     best_score = -1000
 
     for kernel in kernels:
-        gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=3, random_state=5)
+        gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=3, random_state=58)
         print("\nTRAINING THE FOLLOWING KERNEL", str(kernel), "\n")
         score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
         cv_scores.loc[str(kernel), "CV_score"] = score
@@ -145,8 +143,9 @@ if __name__ == "__main__":
 
     X_train, X_test, y_train, y_prior = data_preprocessing()
 
-    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0))
-               #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)),
+    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0)) #44.9 R^2, pca 9 componetns
+               #Matern(length_scale=0.3, nu=0.2, length_scale_bounds=(1e-12, 1000000.0)) #44.88% R^2, pca 9 components
+               #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0))
                #RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))#,
                #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))
                ]
