@@ -19,7 +19,7 @@ import time
 
 
 
-def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern(length_scale=0.3, nu=0.4, length_scale_bounds=(1e-12, 1000000.0))):
+def data_preprocessing(num_features):
     """
     This function loads the training and test data, preprocesses it, removes the NaN values and interpolates the missing 
     data using the iterative imputer provided by sklearn using a Gaussian Process Regressor.
@@ -91,7 +91,6 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     abs_loadings=np.abs(cca.x_loadings_)
     #plt.plot([x+1 for x in range(len(abs_loadings))], sorted(abs_loadings), 'r-')
     #plt.show()
-    num_features = 80
     indices = sorted(range(len(abs_loadings)), key=lambda x: abs_loadings[x])[-num_features:]
     X_train_cca = X_train_scaled[:, indices]
     X_test_cca = X_test_scaled[:, indices]
@@ -101,7 +100,7 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     
 
 
-def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
+def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels, alpha):
     """
     This function defines the model, fits training data and then does the prediction with the test data 
 
@@ -116,8 +115,6 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
     ----------
     y_test: array of floats: dim = (100,), predictions on test set
     """
-
-    alpha = 1e-3
 
     # initialize cv_score for each kernel, best kernel and its score
     cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
@@ -150,17 +147,17 @@ def modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels):
 
 if __name__ == "__main__":
 
-    X_train, X_test, y_train, y_prior = data_preprocessing()
+    X_train, X_test, y_train, y_prior = data_preprocessing(num_features=190)
 
-    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0)), #44.9 R^2, pca 9 componetns
-               Matern(length_scale=0.3, nu=0.2, length_scale_bounds=(1e-12, 1000000.0)) #44.88% R^2, pca 9 components
+    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0)) #44.9 R^2, pca 9 componetns
+               #Matern(length_scale=0.3, nu=0.2, length_scale_bounds=(1e-12, 1000000.0)) #44.88% R^2, pca 9 components
                #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)),
                #DotProduct()
                #RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-05, 200000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))#,
                #RBF(length_scale=1.0, length_scale_bounds=(1e-08, 10000000.0)) + WhiteKernel(noise_level=0.5, noise_level_bounds=(1e-06, 200000.0))
                ]
 
-    y_pred = modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels)
+    y_pred = modeling_and_prediction(X_train, X_test, y_train, y_prior, kernels, alpha=1e-6)
 
     # write final result to csv
     sample = pd.read_csv("./AdvancedML/task1/data/sample.csv")
