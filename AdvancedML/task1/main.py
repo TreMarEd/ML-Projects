@@ -89,7 +89,9 @@ def data_preprocessing(alpha=1e-4, seed=6, restarts=2, max_iter=3, kernel=Matern
     cca = CCA(n_components=1)
     cca.fit(X_train_scaled, y_train)
     abs_loadings=np.abs(cca.x_loadings_)
-    num_features = 30
+    #plt.plot([x+1 for x in range(len(abs_loadings))], sorted(abs_loadings), 'r-')
+    #plt.show()
+    num_features = 80
     indices = sorted(range(len(abs_loadings)), key=lambda x: abs_loadings[x])[-num_features:]
     X_train_cca = X_train_scaled[:, indices]
     X_test_cca = X_test_scaled[:, indices]
