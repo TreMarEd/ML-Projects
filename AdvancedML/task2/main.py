@@ -8,6 +8,7 @@ import pandas as pd
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.decomposition import PCA
+from sklearn.svm import SVC
 from sklearn.metrics import f1_score #F1 = f1_score(y_true, y_pred, average='micro')
 from biosppy.signals.ecg import ecg #TODO: maybe try another package, see this post: https://www.samproell.io/posts/signal/ecg-library-comparison/
 import matplotlib.pyplot as plt
@@ -112,7 +113,6 @@ def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
     
     else:
         raise ValueError
-    
     
 
 def get_PQRST(template, template_ts):
@@ -219,9 +219,8 @@ def get_features(sample):
     template_features = []
     for i in range(len(templates)):
         template_features.append(get_PQRST(templates[i], templates_ts))
-
     template_features = pd.DataFrame(template_features)
-    #[60/x for x in np.diff([ts[rpeak] for rpeak in rpeaks])]
+    
     output = {}
     for col in template_features.columns:
         x = template_features[col].to_numpy()
@@ -313,12 +312,12 @@ def data_preprocessing():
     # TODO: deal with class imbalance: either by resampling or using an SVM with class_weights = "balanced"
 
     np.savetxt("./AdvancedML//task2/data/features_train_09pca_indTemp_StdScaler.csv", features_train_pca, delimiter=",")
-    np.savetxt("./AdvancedML//task2/data/feautres_test_09pca_indTemp_StdScaler.csv", features_test_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/feautures_test_09pca_indTemp_StdScaler.csv", features_test_pca, delimiter=",")
 
     return features_train_pca, features_test_pca, y_train
 
 
-def modeling_and_prediction():
+def modeling_and_prediction(X_train, X_test, y_train, models):
     """
     TODO: write docstring
     Parameters
@@ -331,56 +330,85 @@ def modeling_and_prediction():
 
     # TODO: choose model: SVM? bagged SVM? gradient boosting?
 
-    # TODO: cross validate svm kernels and regularization parameter C
-
     # initialize cv_score for each kernel, best kernel and its score
-    """
-    cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(kernel) for kernel in kernels])
-    best_kernel = None
+    cv_scores = pd.DataFrame(columns=["CV_score"], index=[str(model) for model in models])
+    best_model = None
     best_score = -100000
 
-    for kernel in kernels:
-        gpr = GaussianProcessRegressor(kernel=kernel, alpha=alpha, n_restarts_optimizer=3, random_state=58)
-        print("\nTRAINING THE FOLLOWING KERNEL", str(kernel), "\n")
-        score = np.mean(cross_val_score(gpr, X_train, y_train, cv=10, scoring="r2"))
-        cv_scores.loc[str(kernel), "CV_score"] = score
+    for model in models:
+        print("==========================================================") 
+        print("\nTRAINING THE FOLLOWING KERNEL", str(model), "\n")
+        t0 = time.time()
+        svc = SVC(C=model[0], kernel=model[3], degree=model[4], gamma=model[1], class_weight=model[2])
+        scores = cross_val_score(svc, X_train, y_train, cv=10, scoring="f1_micro", error_score="raise")
+        score = np.mean(scores)
+        cv_scores.loc[str(model), "CV_score"] = score
+        print("\nMODEL GOT THE FOLLOWING SCORE", str(score), "\n")
+        t1 = time.time() 
+        print("\nELAPSED MINUTES:", (t1-t0)/60, "\n")
 
         if score > best_score:
-            best_kernel = kernel
+            best_model = model
             best_score = score
 
-    print("\nTHE KERNELS ACHIEVE THE FOLLOWING R2-CV-SCORES:\n")
+    print("\nTHE MODELS ACHIEVE THE FOLLOWING MICRO F1 SCORES:\n")
     print(cv_scores)
 
-    print("\nTHE BEST KERNEL IS ", str(best_kernel),". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
-    gpr = GaussianProcessRegressor(kernel=best_kernel, alpha=alpha, n_restarts_optimizer=3, random_state=5)
-    gpr.fit(X_train, y_train)
-    y_pred = gpr.predict(X_test)
+    print("\nTHE BEST KERNEL IS ", str(best_model),". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
+    svc = SVC(C=best_model[0], kernel=best_model[3], degree=best_model[4], gamma=best_model[1], class_weight=best_model[2])
 
     # add average age estimate of prior to obtain final posterior estimate
-    y_pred = y_pred + y_prior
-    """
-    y_pred = None
+    svc.fit(X_train, y_train)
+    y_pred = svc.predict(X_test)
+    
     return y_pred
     
 
 
 if __name__ == "__main__":
 
-    t0 = time.time()
-    X_train, X_test, y_train = data_preprocessing()
-    t1 = time.time() 
-    print("\nELAPSED MINUTES:", (t1-t0)/60, "\n") 
+    preprocessing = False
+    if preprocessing:
+        t0 = time.time()
+        X_train, X_test, y_train = data_preprocessing()
+        t1 = time.time() 
+        print("\nELAPSED MINUTES:", (t1-t0)/60, "\n")
+    else:
+        print("\nLOADING TRAINING DATA\n")
+        y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
+        y_train = y_train.drop('id', axis=1).to_numpy().flatten()
+        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_09pca_indTemp_StdScaler.csv", delimiter=",")
+        print("\nLOADING TEST DATA\n")
+        X_test = np.loadtxt("./AdvancedML//task2/data/feautures_test_09pca_indTemp_StdScaler.csv", delimiter=",") 
 
-    """
-    # list of kernels to be validated for the Gaussian process
-    kernels = [RationalQuadratic(length_scale=1.0, alpha=1.5, length_scale_bounds=(1e-08, 1000000.0), alpha_bounds=(1e-08, 200000.0)),
-               Matern(length_scale=0.3, nu=0.2, length_scale_bounds=(1e-12, 1000000.0)),
-               RBF(),
-               DotProduct()]
-    """
-    y_pred = modeling_and_prediction()
     
+    # list of kernels to be validated for the Gaussian process
+    models = []
+    for C in [1, 10]:
+        for gamma in ["scale", "auto"]:
+            for class_weight in ["balanced", None]:
+                for kernel in ["linear", "poly", "rbf"]:               
+                    if kernel == "poly":
+                        for degree in range(2,5):
+                            model = []
+                            model.append(C)
+                            model.append(gamma)
+                            model.append(class_weight)
+                            model.append(kernel)
+                            model.append(degree)
+                            models.append(model)
+                    else:
+                        model = []
+                        model.append(C)
+                        model.append(gamma)
+                        model.append(class_weight)
+                        model.append(kernel)
+                        model.append(1)
+                        models.append(model)
+
+    print("\nNUMBER OF MODELS TO BE TRAINED: ", len(models), "\n") 
+
+    y_pred = modeling_and_prediction(X_train, X_test, y_train, models)
 
     # write final result to csv using the provided sample submission
     sample = pd.read_csv("./AdvancedML/task2/data/sample.csv")
