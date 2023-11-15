@@ -6,7 +6,7 @@ TODO: more detailed explanation
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import cross_val_score
-from sklearn.preprocessing import StandardScaler
+from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.metrics import f1_score #F1 = f1_score(y_true, y_pred, average='micro')
@@ -279,7 +279,7 @@ def data_preprocessing():
     X_test = pd.read_csv("./AdvancedML/task2/data/X_test.csv")
 
     X_train = X_train.drop('id', axis=1).to_numpy()
-    y_train = y_train.drop('id', axis=1).to_numpy()
+    y_train = y_train.drop('id', axis=1).to_numpy().flatten()
     X_test = X_test.drop('id', axis=1).to_numpy()
 
     print("\nEXTRACTING TRAINING FEATURES\n")
@@ -297,13 +297,13 @@ def data_preprocessing():
     features_test = features_test.to_numpy()
 
     print("\nSCALING DATA\n")
-    scaler = StandardScaler()
+    scaler = MinMaxScaler()
     scaler.fit(np.vstack([features_train, features_test]))
     features_train_scaled = scaler.transform(features_train)
     features_test_scaled = scaler.transform(features_test)
 
     print("\nREDUCING DIMENSIONALITY\n")
-    pca = PCA(n_components=0.9)
+    pca = PCA(n_components=30)
     pca.fit(np.vstack([features_train_scaled, features_test_scaled]))
     features_train_pca = pca.transform(features_train_scaled)
     features_test_pca = pca.transform(features_test_scaled)
@@ -311,8 +311,8 @@ def data_preprocessing():
 
     # TODO: deal with class imbalance: either by resampling or using an SVM with class_weights = "balanced"
 
-    np.savetxt("./AdvancedML//task2/data/features_train_09pca_indTemp_StdScaler.csv", features_train_pca, delimiter=",")
-    np.savetxt("./AdvancedML//task2/data/feautures_test_09pca_indTemp_StdScaler.csv", features_test_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler.csv", features_train_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler.csv", features_test_pca, delimiter=",")
 
     return features_train_pca, features_test_pca, y_train
 
@@ -354,7 +354,7 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
     print("\nTHE MODELS ACHIEVE THE FOLLOWING MICRO F1 SCORES:\n")
     print(cv_scores)
 
-    print("\nTHE BEST KERNEL IS ", str(best_model),". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
+    print("\nTHE BEST MODEL IS ", str(best_model)," with a score of " + str(best_score)+". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
     svc = SVC(C=best_model[0], kernel=best_model[3], degree=best_model[4], gamma=best_model[1], class_weight=best_model[2])
 
     # add average age estimate of prior to obtain final posterior estimate
@@ -362,8 +362,6 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
     y_pred = svc.predict(X_test)
     
     return y_pred
-    
-
 
 if __name__ == "__main__":
 
@@ -377,34 +375,25 @@ if __name__ == "__main__":
         print("\nLOADING TRAINING DATA\n")
         y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
         y_train = y_train.drop('id', axis=1).to_numpy().flatten()
-        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_09pca_indTemp_StdScaler.csv", delimiter=",")
+        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler.csv", delimiter=",")
         print("\nLOADING TEST DATA\n")
-        X_test = np.loadtxt("./AdvancedML//task2/data/feautures_test_09pca_indTemp_StdScaler.csv", delimiter=",") 
+        X_test = np.loadtxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler.csv", delimiter=",") 
 
     
     # list of kernels to be validated for the Gaussian process
+    #current best: [200, 0.2, None, 'rbf', 1] with 0.7176 and ffeatures_train_30pca_indTemp_MMScaler.csv
     models = []
-    for C in [1, 10]:
-        for gamma in ["scale", "auto"]:
-            for class_weight in ["balanced", None]:
-                for kernel in ["linear", "poly", "rbf"]:               
-                    if kernel == "poly":
-                        for degree in range(2,5):
-                            model = []
-                            model.append(C)
-                            model.append(gamma)
-                            model.append(class_weight)
-                            model.append(kernel)
-                            model.append(degree)
-                            models.append(model)
-                    else:
-                        model = []
-                        model.append(C)
-                        model.append(gamma)
-                        model.append(class_weight)
-                        model.append(kernel)
-                        model.append(1)
-                        models.append(model)
+    for C in [170, 190, 210]:
+        for gamma in [0.16, 0.18, 0.22, 0.26]:
+            for class_weight in [None]:
+                for kernel in ["rbf"]:               
+                    model = []
+                    model.append(C)
+                    model.append(gamma)
+                    model.append(class_weight)
+                    model.append(kernel)
+                    model.append(1)
+                    models.append(model)
 
     print("\nNUMBER OF MODELS TO BE TRAINED: ", len(models), "\n") 
 
