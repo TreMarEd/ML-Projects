@@ -56,18 +56,15 @@ def get_wave_duration(template, time, peak_index, tolerance=0):
        left_time = time[left_root_index + 1] - template[left_root_index + 1] * (time[left_root_index+1] - time[left_root_index])/(template[left_root_index+1] - template[left_root_index])
        right_time = time[peak_index] + abs(left_time - time[peak_index])
     
-    else: raise(ValueError)
+    else: 
+        raise(ValueError)
 
     duration = right_time - left_time
 
     return right_time, left_time, duration
 
-    
 
-    #TODO: special case where left or right root is not found for P and T wave
-
-
-def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
+def find_extreme(template, time, index, side, ext, sample_index, template_index, a=-10000, b=10000):
     """
     TODO: write docstring
     Finds the minimum or maximum value of an array to the left or right of a certain index and returns the index and the value of template and time at that index
@@ -102,11 +99,11 @@ def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
         time_ = time[:index]
 
         if ext == "max":
-            out_index = max(enumerate(template_), key=lambda x: x[1])[0]
+            out_index = max(filter(lambda x: time_[x[0]] < b and time_[x[0]] > a , enumerate(template_)), key=lambda x: x[1])[0]
             return out_index, template_[out_index], time_[out_index]
         
         elif ext == "min":
-            out_index = min(enumerate(template_), key=lambda x: x[1])[0]
+            out_index = min(filter(lambda x: time_[x[0]] < b and time_[x[0]] > a , enumerate(template_)), key=lambda x: x[1])[0]
             return out_index, template_[out_index], time_[out_index]
         
         else:
@@ -117,7 +114,7 @@ def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
     
     
 
-def get_PQRST(template, template_ts):
+def get_PQRST(template, template_ts, sample_index, template_index, plot=False):
     """
     TODO: write docstring
     Parameters
@@ -127,24 +124,25 @@ def get_PQRST(template, template_ts):
     ----------
    
     """
-
+    #if sample_index==4 and template_index==6:
+    #    print("hoi")
     output = {}
 
     # find P,Q,R,S,T times and signals, see https://en.wikipedia.org/wiki/QRS_complex
     # R-peak is the largest signal in a well behaved template
-    R_index, output["R_signal"], R_time = find_extreme(template, template_ts, 0, "right", "max", a=-0.1, b=0.1)
+    R_index, output["R_signal"], R_time = find_extreme(template, template_ts, 0, "right", "max", sample_index, template_index, a=-0.1, b=0.1 )
 
     # S-peak is the smallest signal to the right of the R-peak in a well behaved template
-    S_index, output["S_signal"], S_time = find_extreme(template, template_ts, R_index, "right", "min", a=0, b=0.12)
+    S_index, output["S_signal"], S_time = find_extreme(template, template_ts, R_index, "right", "min", sample_index, template_index, a=0, b=0.12)
 
     # Q-peak is the smallest signal to the left of the R-peak in a well behaved template
-    Q_index, output["Q_signal"], Q_time = find_extreme(template, template_ts, R_index, "left", "min", a=-0.12, b=0)
+    Q_index, output["Q_signal"], Q_time = find_extreme(template, template_ts, R_index, "left", "min", sample_index, template_index, a=-0.12, b=0)
 
     # T-peak is the largest signal to the right of the S-peak in a well behaved template
-    T_index, output["T_signal"], T_time = find_extreme(template, template_ts, S_index, "right", "max")
+    T_index, output["T_signal"], T_time = find_extreme(template, template_ts, S_index, "right", "max", sample_index, template_index)
 
     # P-peak is the largest signal to the left of the Q-peak in a well behaved template
-    P_index, output["P_signal"], P_time = find_extreme(template, template_ts, Q_index, "left", "max")
+    P_index, output["P_signal"], P_time = find_extreme(template, template_ts, Q_index, "left", "max", sample_index, template_index)
 
     # fill signal pairs
     for i, n in enumerate(["P", "Q", "R", "S", "T"]):
@@ -164,7 +162,7 @@ def get_PQRST(template, template_ts):
     # name in the literature (see comments). Otherwise, I apply the convention that for example the "PR duration" is the difference
     # between the start of R and the start of P
 
-    output["PR-inverval"] = Q_left_time - P_right_time #technical medical term, called "PR" even though QP is concerned
+    output["PR-interval"] = Q_left_time - P_right_time #technical medical term, called "PR" even though QP is concerned
     output["PR-segment"] = Q_left_time - P_left_time #technical medical term called "PR" even though QP is concerned
     output["PR-duration"] = R_left_time - P_left_time
     output["PS-duration"] = S_left_time - P_left_time
@@ -177,24 +175,23 @@ def get_PQRST(template, template_ts):
     output["ST-segment"] = T_left_time - S_right_time #technical medical term
     output["ST-interval"] = T_right_time - S_right_time #technical medical term
 
-    plt.figure()
-    plt.plot(template_ts, template, '-r')
-    plt.plot([P_time, Q_time, R_time, S_time, T_time], [output["P_signal"], output["Q_signal"], output["R_signal"], output["S_signal"], output["T_signal"]],'xb')
-    plt.plot([P_right_time, P_left_time], [0,0],'ok')
-    plt.plot([Q_right_time, Q_left_time], [0,0],'ok')
-    plt.plot([R_right_time, R_left_time], [0,0],'ok')
-    plt.plot([S_right_time, S_left_time], [0,0],'ok')
-    plt.plot([T_right_time, T_left_time], [0,0],'ok')
-    plt.show()
-    print("hoi")
+    if plot:
+        plt.figure()
+        plt.plot(template_ts, template, '-r')
+        plt.plot([P_time, Q_time, R_time, S_time, T_time], [output["P_signal"], output["Q_signal"], output["R_signal"], output["S_signal"], output["T_signal"]],'xb')
+        plt.plot([P_right_time, P_left_time], [0,0],'ok')
+        plt.plot([Q_right_time, Q_left_time], [0,0],'ok')
+        plt.plot([R_right_time, R_left_time], [0,0],'ok')
+        plt.plot([S_right_time, S_left_time], [0,0],'ok')
+        plt.plot([T_right_time, T_left_time], [0,0],'ok')
+        plt.show()
 
     return output
     
     
-
 vget_PQRST = np.vectorize(get_PQRST)    
 
-def get_features(sample, discard_first = 2):
+def get_features(sample, sample_index):
     """
     TODO: write docstring
     Parameters
@@ -218,7 +215,24 @@ def get_features(sample, discard_first = 2):
     """
     ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample[~np.isnan(sample)], sampling_rate=300, show = False)
 
-    # TODO: apply get_PQRST to all templates and get means and variances (or medians and MADs)
+    template_features = []
+    for i in range(len(templates)):
+        template_features.append(get_PQRST(templates[i], templates_ts, sample_index, i))
+    
+    template_features = pd.DataFrame(template_features)
+
+    output = {}
+    for col in template_features.columns:
+        x = template_features[col].to_numpy()
+        output[col+"_median"] = np.median(x)
+        output[col+"_MAD"] = np.median(np.abs((x-output[col+"_median"])))
+        output["heartrate_median"] = np.median(heart_rate)
+        output["heartrate_MAD"]= np.median(np.abs((heart_rate - output["heartrate_median"]))) 
+
+    # TODO: plot median template together with the medians you extracted from individual templates
+
+    return output
+
 
 vget_features = np.vectorize(get_features)  
 
@@ -247,11 +261,17 @@ def data_preprocessing():
     #X_test = X_test.drop('id', axis=1).to_numpy()
 
     print("\nEXTRACTING FEATURES\n")
-    # TODO: find package that extracts PQRST complex for you. Then extract the mean and variances of PQRST times and signals, 
-    # extract mean and variances of PQRST wave durations, QRS duration, total duration, venticular activation time, PR interval, QT interval
-    # and differences of all signal pairs except maybe for P,Q relative to QRS. expect roughly 50 features
 
+    features = []
+    for i in range(np.shape(X_train)[0]):
+        features.append(get_features(X_train[i,:], i))
+    
+    features = pd.DataFrame(features)
+    print("hoi")
 
+        
+
+    """
     print("\nnew sample\n")
     counter = 0
     for i in range(100):
@@ -264,7 +284,7 @@ def data_preprocessing():
         ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample[~np.isnan(sample)], sampling_rate=300, show = False)
         for j in [1, 2, 10 , 11, 15]:
             get_PQRST(templates[j], templates_ts)
-
+    """
     
 
     # TODO: apply get_features to all samples
