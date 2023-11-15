@@ -5,12 +5,13 @@ TODO: more detailed explanation
 
 import numpy as np
 import pandas as pd
-from sklearn.gaussian_process.kernels import DotProduct, RBF, Matern, RationalQuadratic
 from sklearn.model_selection import cross_val_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.decomposition import PCA
 from sklearn.metrics import f1_score #F1 = f1_score(y_true, y_pred, average='micro')
 from biosppy.signals.ecg import ecg #TODO: maybe try another package, see this post: https://www.samproell.io/posts/signal/ecg-library-comparison/
 import matplotlib.pyplot as plt
+import time
 
 def get_wave_duration(template, time, peak_index, tolerance=0):
     """
@@ -64,7 +65,7 @@ def get_wave_duration(template, time, peak_index, tolerance=0):
     return right_time, left_time, duration
 
 
-def find_extreme(template, time, index, side, ext, sample_index, template_index, a=-10000, b=10000):
+def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
     """
     TODO: write docstring
     Finds the minimum or maximum value of an array to the left or right of a certain index and returns the index and the value of template and time at that index
@@ -114,7 +115,7 @@ def find_extreme(template, time, index, side, ext, sample_index, template_index,
     
     
 
-def get_PQRST(template, template_ts, sample_index, template_index, plot=False):
+def get_PQRST(template, template_ts):
     """
     TODO: write docstring
     Parameters
@@ -130,19 +131,19 @@ def get_PQRST(template, template_ts, sample_index, template_index, plot=False):
 
     # find P,Q,R,S,T times and signals, see https://en.wikipedia.org/wiki/QRS_complex
     # R-peak is the largest signal in a well behaved template
-    R_index, output["R_signal"], R_time = find_extreme(template, template_ts, 0, "right", "max", sample_index, template_index, a=-0.1, b=0.1 )
+    R_index, output["R_signal"], output["R_time"] = find_extreme(template, template_ts, 0, "right", "max", a=-0.1, b=0.1 )
 
     # S-peak is the smallest signal to the right of the R-peak in a well behaved template
-    S_index, output["S_signal"], S_time = find_extreme(template, template_ts, R_index, "right", "min", sample_index, template_index, a=0, b=0.12)
+    S_index, output["S_signal"], output["S_time"] = find_extreme(template, template_ts, R_index, "right", "min", a=0, b=0.12)
 
     # Q-peak is the smallest signal to the left of the R-peak in a well behaved template
-    Q_index, output["Q_signal"], Q_time = find_extreme(template, template_ts, R_index, "left", "min", sample_index, template_index, a=-0.12, b=0)
+    Q_index, output["Q_signal"], output["Q_time"] = find_extreme(template, template_ts, R_index, "left", "min", a=-0.12, b=0)
 
     # T-peak is the largest signal to the right of the S-peak in a well behaved template
-    T_index, output["T_signal"], T_time = find_extreme(template, template_ts, S_index, "right", "max", sample_index, template_index)
+    T_index, output["T_signal"], output["T_time"] = find_extreme(template, template_ts, S_index, "right", "max", a=0.12)
 
     # P-peak is the largest signal to the left of the Q-peak in a well behaved template
-    P_index, output["P_signal"], P_time = find_extreme(template, template_ts, Q_index, "left", "max", sample_index, template_index)
+    P_index, output["P_signal"], output["P_time"] = find_extreme(template, template_ts, Q_index, "left", "max", b=-0.12)
 
     # fill signal pairs
     for i, n in enumerate(["P", "Q", "R", "S", "T"]):
@@ -167,18 +168,18 @@ def get_PQRST(template, template_ts, sample_index, template_index, plot=False):
     output["PR-duration"] = R_left_time - P_left_time
     output["PS-duration"] = S_left_time - P_left_time
     output["total-duration"] = T_right_time - P_left_time #not a technical term, describes the total extent of the waveform
-    output["VAT"] = R_time - Q_left_time  #technical medical term: ventricular activation time
+    output["VAT"] = output["R_time"] - Q_left_time  #technical medical term: ventricular activation time
     output["QRS-duration"] = S_right_time - Q_left_time #technical medical term
     output["QT-duration"] = T_left_time - Q_left_time
-    output["VDT"] = S_right_time - R_time # not a technical term but defined by me analogous to ventricular activation time: ventricular deactivation time
+    output["VDT"] = S_right_time - output["R_time"] # not a technical term but defined by me analogous to ventricular activation time: ventricular deactivation time
     output["RT-duration"] = T_left_time - R_left_time
     output["ST-segment"] = T_left_time - S_right_time #technical medical term
     output["ST-interval"] = T_right_time - S_right_time #technical medical term
 
-    if plot:
+    if False:
         plt.figure()
         plt.plot(template_ts, template, '-r')
-        plt.plot([P_time, Q_time, R_time, S_time, T_time], [output["P_signal"], output["Q_signal"], output["R_signal"], output["S_signal"], output["T_signal"]],'xb')
+        plt.plot([output["P_time"], output["Q_time"], output["R_time"], output["S_time"], output["T_time"]], [output["P_signal"], output["Q_signal"], output["R_signal"], output["S_signal"], output["T_signal"]],'xb')
         plt.plot([P_right_time, P_left_time], [0,0],'ok')
         plt.plot([Q_right_time, Q_left_time], [0,0],'ok')
         plt.plot([R_right_time, R_left_time], [0,0],'ok')
@@ -188,10 +189,8 @@ def get_PQRST(template, template_ts, sample_index, template_index, plot=False):
 
     return output
     
-    
-vget_PQRST = np.vectorize(get_PQRST)    
 
-def get_features(sample, sample_index):
+def get_features(sample):
     """
     TODO: write docstring
     Parameters
@@ -213,28 +212,51 @@ def get_features(sample, sample_index):
     heart_rate: heart rate of the patient over time
     here ts, filtered and rpeaks are not used.
     """
+    #for 6 samples ecg returns an empty heartrate, which makes no sense
+    #TODO: calculate it yourself using rpeaks
     ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample[~np.isnan(sample)], sampling_rate=300, show = False)
 
     template_features = []
     for i in range(len(templates)):
-        template_features.append(get_PQRST(templates[i], templates_ts, sample_index, i))
-    
-    template_features = pd.DataFrame(template_features)
+        template_features.append(get_PQRST(templates[i], templates_ts))
 
+    template_features = pd.DataFrame(template_features)
+    #[60/x for x in np.diff([ts[rpeak] for rpeak in rpeaks])]
     output = {}
     for col in template_features.columns:
         x = template_features[col].to_numpy()
         output[col+"_median"] = np.median(x)
         output[col+"_MAD"] = np.median(np.abs((x-output[col+"_median"])))
-        output["heartrate_median"] = np.median(heart_rate)
-        output["heartrate_MAD"]= np.median(np.abs((heart_rate - output["heartrate_median"]))) 
 
-    # TODO: plot median template together with the medians you extracted from individual templates
+        output["heartrate_median"] = np.median(heart_rate)
+        # ecg outputs no heartrate if it is very low, which leads to nans, derive your own proxy for the heart rate here
+        if np.isnan(output["heartrate_median"]):
+            heart_rate_proxy = [60/x for x in np.diff([ts[rpeak] for rpeak in rpeaks])]
+            output["heartrate_median"] = np.median(heart_rate_proxy)
+            output["heartrate_MAD"]= np.median(np.abs((heart_rate_proxy - output["heartrate_median"])))
+        else:  
+            output["heartrate_MAD"]= np.median(np.abs((heart_rate - output["heartrate_median"]))) 
+
+    if False and sample_index<60 and sample_index>40:
+        print("\nP: ", output["P_time_MAD"])
+        print("\nQ: ", output["Q_time_MAD"])
+        print("\nR: ", output["R_time_MAD"])
+        print("\nS: ", output["S_time_MAD"])
+        print("\nT: ", output["T_time_MAD"])
+        plt.figure()
+        plt.plot(templates_ts, np.median(templates, axis=0), '-r')
+        plt.plot([output["P_time_median"], output["Q_time_median"], output["R_time_median"], output["S_time_median"], output["T_time_median"]], [output["P_signal_median"], output["Q_signal_median"], output["R_signal_median"], output["S_signal_median"], output["T_signal_median"]],'xk' )
+        plt.plot(np.linspace(output["P_time_median"]-output["P_duration_median"]/2,output["P_time_median"]+output["P_duration_median"]/2,100), [0 for i in range(100)],'-k')
+        plt.plot(np.linspace(output["Q_time_median"]-output["Q_duration_median"]/2,output["Q_time_median"]+output["Q_duration_median"]/2,100), [0 for i in range(100)],'-b')
+
+        plt.plot(np.linspace(output["S_time_median"]-output["S_duration_median"]/2,output["S_time_median"]+output["S_duration_median"]/2,100), [0 for i in range(100)],'-k')
+        plt.plot(np.linspace(output["T_time_median"]-output["T_duration_median"]/2,output["T_time_median"]+output["T_duration_median"]/2,100), [0 for i in range(100)],'-k')
+        
+        plt.show()
 
     return output
 
 
-vget_features = np.vectorize(get_features)  
 
 def data_preprocessing():
     """
@@ -248,54 +270,52 @@ def data_preprocessing():
     """
 
     # Load training features and labels
-    print("\nLOADING DATA\n")
-    #X_train = pd.read_csv("./AdvancedML/task2/data/X_train.csv")
-    X_train = pd.read_csv("./AdvancedML/task2/data/X_train_small.csv")
+    print("\nLOADING TRAINING DATA\n")
+    X_train = pd.read_csv("./AdvancedML/task2/data/X_train.csv")
+    #X_train = pd.read_csv("./AdvancedML/task2/data/X_train_small.csv")
     #X_train.iloc[:100,:].to_csv("./AdvancedML/task2/data/X_train_small.csv", header=True, index=False)
-    y_train = pd.read_csv("./AdvancedML//task2/data/y_train.csv")
+    y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
     # Load test features
-    #X_test = pd.read_csv("./AdvancedML//task2/data/X_test.csv")
+    print("\nLOADING TEST DATA\n")
+    X_test = pd.read_csv("./AdvancedML/task2/data/X_test.csv")
 
     X_train = X_train.drop('id', axis=1).to_numpy()
     y_train = y_train.drop('id', axis=1).to_numpy()
-    #X_test = X_test.drop('id', axis=1).to_numpy()
+    X_test = X_test.drop('id', axis=1).to_numpy()
 
-    print("\nEXTRACTING FEATURES\n")
+    print("\nEXTRACTING TRAINING FEATURES\n")
+    features_train = list(np.apply_along_axis(get_features, 1, X_train))
+    features_train = pd.DataFrame(features_train)
+    features_train = features_train.drop(["P_time_median", "Q_time_median", "R_time_median", "S_time_median", "T_time_median", 
+                              "P_time_MAD", "Q_time_MAD", "R_time_MAD", "S_time_MAD", "T_time_MAD"], axis=1)
+    features_train = features_train.to_numpy()
 
-    features = []
-    for i in range(np.shape(X_train)[0]):
-        features.append(get_features(X_train[i,:], i))
-    
-    features = pd.DataFrame(features)
-    print("hoi")
+    print("\nEXTRACTING TEST FEATURES\n") 
+    features_test = list(np.apply_along_axis(get_features, 1, X_test))
+    features_test = pd.DataFrame(features_test)
+    features_test = features_test.drop(["P_time_median", "Q_time_median", "R_time_median", "S_time_median", "T_time_median", 
+                              "P_time_MAD", "Q_time_MAD", "R_time_MAD", "S_time_MAD", "T_time_MAD"], axis=1)
+    features_test = features_test.to_numpy()
 
-        
+    print("\nSCALING DATA\n")
+    scaler = StandardScaler()
+    scaler.fit(np.vstack([features_train, features_test]))
+    features_train_scaled = scaler.transform(features_train)
+    features_test_scaled = scaler.transform(features_test)
 
-    """
-    print("\nnew sample\n")
-    counter = 0
-    for i in range(100):
-        if counter >3: break
-        if y_train[i] != 3:
-            continue
-        counter +=1
-        print("\nNEW SAMPLE\n")
-        sample = X_train[i,:]
-        ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample[~np.isnan(sample)], sampling_rate=300, show = False)
-        for j in [1, 2, 10 , 11, 15]:
-            get_PQRST(templates[j], templates_ts)
-    """
-    
-
-    # TODO: apply get_features to all samples
-
-    # TODO: scale the data
-
-    # TODO: dimred 
+    print("\nREDUCING DIMENSIONALITY\n")
+    pca = PCA(n_components=0.9)
+    pca.fit(np.vstack([features_train_scaled, features_test_scaled]))
+    features_train_pca = pca.transform(features_train_scaled)
+    features_test_pca = pca.transform(features_test_scaled)
+    print("\nNumber of kept components: ", np.shape(features_train_pca)[1])
 
     # TODO: deal with class imbalance: either by resampling or using an SVM with class_weights = "balanced"
 
-    return None, None, None, None
+    np.savetxt("./AdvancedML//task2/data/features_train_09pca_indTemp_StdScaler.csv", features_train_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/feautres_test_09pca_indTemp_StdScaler.csv", features_test_pca, delimiter=",")
+
+    return features_train_pca, features_test_pca, y_train
 
 
 def modeling_and_prediction():
@@ -347,7 +367,10 @@ def modeling_and_prediction():
 
 if __name__ == "__main__":
 
-    X_train, X_test, y_train, y_prior = data_preprocessing()
+    t0 = time.time()
+    X_train, X_test, y_train = data_preprocessing()
+    t1 = time.time() 
+    print("\nELAPSED MINUTES:", (t1-t0)/60, "\n") 
 
     """
     # list of kernels to be validated for the Gaussian process
