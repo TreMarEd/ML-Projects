@@ -176,6 +176,9 @@ def get_PQRST(template, template_ts):
     output["ST-segment"] = T_left_time - S_right_time #technical medical term
     output["ST-interval"] = T_right_time - S_right_time #technical medical term
 
+    # add energy of the signal 
+    output["energy"] = np.sum(template**2)
+
     if False:
         plt.figure()
         plt.plot(template_ts, template, '-r')
@@ -305,19 +308,19 @@ def data_preprocessing():
     features_train_scaled = scaler.transform(features_train)
     features_test_scaled = scaler.transform(features_test)
 
-    print("\nREDUCING DIMENSIONALITY\n")
-    pca = PCA(n_components=30)
-    pca.fit(np.vstack([features_train_scaled, features_test_scaled]))
-    features_train_pca = pca.transform(features_train_scaled)
-    features_test_pca = pca.transform(features_test_scaled)
-    print("\nNumber of kept components: ", np.shape(features_train_pca)[1])
+    #print("\nREDUCING DIMENSIONALITY\n")
+    #pca = PCA(n_components=50)
+    #pca.fit(np.vstack([features_train_scaled, features_test_scaled]))
+    #features_train_pca = pca.transform(features_train_scaled)
+    #features_test_pca = pca.transform(features_test_scaled)
+    #print("\nNumber of kept components: ", np.shape(features_train_pca)[1])
 
     # TODO: deal with class imbalance: either by resampling or using an SVM with class_weights = "balanced"
 
-    np.savetxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler_meanstd_signalratios.csv", features_train_pca, delimiter=",")
-    np.savetxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler_meanstd_signalratios.csv", features_test_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy.csv", features_train_scaled, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_test_indTemp_MMScaler_meanstd_signalratios_energy.csv", features_test_scaled, delimiter=",")
 
-    return features_train_pca, features_test_pca, y_train
+    return features_train_scaled, features_test_scaled, y_train
 
 
 def modeling_and_prediction(X_train, X_test, y_train, models):
@@ -425,16 +428,16 @@ if __name__ == "__main__":
         print("\nLOADING TRAINING DATA\n")
         y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
         y_train = y_train.drop('id', axis=1).to_numpy().flatten()
-        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler_meanstd_signalratios.csv", delimiter=",")
+        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy.csv", delimiter=",")
         print("\nLOADING TEST DATA\n")
-        X_test = np.loadtxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler_meanstd_signalratios.csv", delimiter=",") 
+        X_test = np.loadtxt("./AdvancedML//task2/data/features_test_indTemp_MMScaler_meanstd_signalratios_energy.csv", delimiter=",") 
 
 
     # list of kernels to be validated for the Gaussian process
-    #current best: [190, 0.18, None, 'rbf', 1] with 0.71818 and ffeatures_train_30pca_indTemp_MMScaler.csv
+    #current best: [250, 0.12, None, 'rbf', 1] with 0.72835and features_train_30pca_indTemp_MMScaler_meanstd_signalratios
     models = []
-    for C in [170, 190, 210]:
-        for gamma in [0.16, 0.18, 0.22, 0.26]:
+    for C in [110, 130, 150]:
+        for gamma in [0.12, 0.14, 0.16, 0.18]:
             for class_weight in [None]:
                 for kernel in ["rbf"]:               
                     model = []
