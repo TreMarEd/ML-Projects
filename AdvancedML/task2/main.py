@@ -10,7 +10,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.metrics import f1_score #F1 = f1_score(y_true, y_pred, average='micro')
-from biosppy.signals.ecg import ecg #TODO: maybe try another package, see this post: https://www.samproell.io/posts/signal/ecg-library-comparison/
+from biosppy.signals.ecg import ecg, engzee_segmenter, extract_heartbeats
 import matplotlib.pyplot as plt
 import time
 
@@ -150,7 +150,7 @@ def get_PQRST(template, template_ts):
         for j, m in enumerate(["P", "Q", "R", "S", "T"]):
             if i>=j: 
                 continue
-            output[n + "-" + m + "_signal"] = output[n + "_signal"] - output[m + "_signal"]
+            output[n + "-" + m + "_signal"] = output[n + "_signal"]/output[m + "_signal"]
 
     R_right_time, R_left_time, output["R_duration"] = get_wave_duration(template, template_ts, R_index)
     P_right_time, P_left_time, output["P_duration"] = get_wave_duration(template, template_ts, P_index)
@@ -224,19 +224,22 @@ def get_features(sample):
     output = {}
     for col in template_features.columns:
         x = template_features[col].to_numpy()
-        output[col+"_median"] = np.median(x)
-        output[col+"_MAD"] = np.median(np.abs((x-output[col+"_median"])))
+        #output[col+"_median"] = np.median(x)
+        #output[col+"_MAD"] = np.median(np.abs((x-output[col+"_median"])))
+        output[col+"_median"] = np.mean(x)
+        output[col+"_MAD"] = np.std(x)
 
-        output["heartrate_median"] = np.median(heart_rate)
+        
         # ecg outputs no heartrate if it is very low, which leads to nans, derive your own proxy for the heart rate here
-        if np.isnan(output["heartrate_median"]):
+        if len(heart_rate) == 0:
             heart_rate_proxy = [60/x for x in np.diff([ts[rpeak] for rpeak in rpeaks])]
             output["heartrate_median"] = np.median(heart_rate_proxy)
-            output["heartrate_MAD"]= np.median(np.abs((heart_rate_proxy - output["heartrate_median"])))
+            output["heartrate_MAD"]= np.median(np.abs((heart_rate_proxy - output["heartrate_median"])))    
         else:  
-            output["heartrate_MAD"]= np.median(np.abs((heart_rate - output["heartrate_median"]))) 
+            output["heartrate_median"] = np.median(heart_rate)
+            output["heartrate_MAD"]= np.median(np.abs((heart_rate - output["heartrate_median"])))  
 
-    if False and sample_index<60 and sample_index>40:
+    if False:
         print("\nP: ", output["P_time_MAD"])
         print("\nQ: ", output["Q_time_MAD"])
         print("\nR: ", output["R_time_MAD"])
@@ -311,8 +314,8 @@ def data_preprocessing():
 
     # TODO: deal with class imbalance: either by resampling or using an SVM with class_weights = "balanced"
 
-    np.savetxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler.csv", features_train_pca, delimiter=",")
-    np.savetxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler.csv", features_test_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler_meanstd_signalratios.csv", features_train_pca, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler_meanstd_signalratios.csv", features_test_pca, delimiter=",")
 
     return features_train_pca, features_test_pca, y_train
 
@@ -363,6 +366,53 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
     
     return y_pred
 
+def mean_plots():
+    """
+    TODO: write docstring
+    Parameters
+    ----------
+
+    Returns
+    ----------
+
+    """
+
+
+    # Load training features and labels
+    print("\nLOADING TRAINING DATA\n")
+    X_train = pd.read_csv("./AdvancedML/task2/data/X_train.csv")
+    y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
+
+    X_train = X_train.drop('id', axis=1).to_numpy()
+    y_train = y_train.drop('id', axis=1).to_numpy().flatten()
+
+    dic = {"0": [], "1": [], "2": [], "3": []}
+
+    for i in range(np.shape(X_train)[0]):
+
+        sample = X_train[i]
+        sample = sample[~np.isnan(sample)]
+        #r_peaks = engzee_segmenter(sample, 300)['rpeaks']
+        ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample, sampling_rate=300, show = False)
+        #beats = extract_heartbeats(sample, r_peaks, 300)['templates']
+        #if len(beats) != 0: #dieser fall ist komisch, wie gehe ich damit um wenn ich das für feature extraktion benutze? ich habe dann kein feature
+            #dic[str(y_train[i])].append(np.mean(beats, axis=0))
+        #for j in range(len(templates)):
+        
+    
+    
+    for i in dic.keys():
+        plt.figure()
+        mean = np.mean(dic[i], axis=0)
+        std = np.std(dic[i], axis=0)
+        plt.plot(range(mean.shape[0]), mean, '-k')
+        plt.fill_between(range(mean.shape[0]), mean - std, mean + std, linewidth=0, alpha=0.1)
+        plt.ylim((-400,1100))
+        plt.savefig("./AdvancedML/task2/mean_plot_"+ i+".png")
+        plt.close()
+
+
+
 if __name__ == "__main__":
 
     preprocessing = False
@@ -375,13 +425,13 @@ if __name__ == "__main__":
         print("\nLOADING TRAINING DATA\n")
         y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
         y_train = y_train.drop('id', axis=1).to_numpy().flatten()
-        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler.csv", delimiter=",")
+        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_30pca_indTemp_MMScaler_meanstd_signalratios.csv", delimiter=",")
         print("\nLOADING TEST DATA\n")
-        X_test = np.loadtxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler.csv", delimiter=",") 
+        X_test = np.loadtxt("./AdvancedML//task2/data/features_test_30pca_indTemp_MMScaler_meanstd_signalratios.csv", delimiter=",") 
 
-    
+
     # list of kernels to be validated for the Gaussian process
-    #current best: [200, 0.2, None, 'rbf', 1] with 0.7176 and ffeatures_train_30pca_indTemp_MMScaler.csv
+    #current best: [190, 0.18, None, 'rbf', 1] with 0.71818 and ffeatures_train_30pca_indTemp_MMScaler.csv
     models = []
     for C in [170, 190, 210]:
         for gamma in [0.16, 0.18, 0.22, 0.26]:
@@ -396,7 +446,7 @@ if __name__ == "__main__":
                     models.append(model)
 
     print("\nNUMBER OF MODELS TO BE TRAINED: ", len(models), "\n") 
-
+    
     y_pred = modeling_and_prediction(X_train, X_test, y_train, models)
 
     # write final result to csv using the provided sample submission
@@ -404,3 +454,4 @@ if __name__ == "__main__":
     sample["y"] = y_pred
     sample.to_csv("./AdvancedML/task2/result.csv", header=True, index=False)
     print("\nRESULTS FILE SUCCESSFULLY GENERATED!")
+    
