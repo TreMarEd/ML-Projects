@@ -10,6 +10,7 @@ from sklearn.preprocessing import StandardScaler, MinMaxScaler
 from sklearn.decomposition import PCA
 from sklearn.svm import SVC
 from sklearn.metrics import f1_score #F1 = f1_score(y_true, y_pred, average='micro')
+from sklearn.ensemble import GradientBoostingClassifier
 from biosppy.signals.ecg import ecg, engzee_segmenter, extract_heartbeats
 import matplotlib.pyplot as plt
 import time
@@ -134,16 +135,16 @@ def get_PQRST(template, template_ts):
     R_index, output["R_signal"], output["R_time"] = find_extreme(template, template_ts, 0, "right", "max", a=-0.1, b=0.1 )
 
     # S-peak is the smallest signal to the right of the R-peak in a well behaved template
-    S_index, output["S_signal"], output["S_time"] = find_extreme(template, template_ts, R_index, "right", "min", a=0, b=0.12)
+    S_index, output["S_signal"], output["S_time"] = find_extreme(template, template_ts, R_index, "right", "min", a=0, b=0.08)
 
     # Q-peak is the smallest signal to the left of the R-peak in a well behaved template
-    Q_index, output["Q_signal"], output["Q_time"] = find_extreme(template, template_ts, R_index, "left", "min", a=-0.12, b=0)
+    Q_index, output["Q_signal"], output["Q_time"] = find_extreme(template, template_ts, R_index, "left", "min", a=-0.08, b=0)
 
     # T-peak is the largest signal to the right of the S-peak in a well behaved template
-    T_index, output["T_signal"], output["T_time"] = find_extreme(template, template_ts, S_index, "right", "max", a=0.12)
+    T_index, output["T_signal"], output["T_time"] = find_extreme(template, template_ts, S_index, "right", "max", a=0.08)
 
     # P-peak is the largest signal to the left of the Q-peak in a well behaved template
-    P_index, output["P_signal"], output["P_time"] = find_extreme(template, template_ts, Q_index, "left", "max", b=-0.12)
+    P_index, output["P_signal"], output["P_time"] = find_extreme(template, template_ts, Q_index, "left", "max", b=-0.08)
 
     # fill signal pairs
     for i, n in enumerate(["P", "Q", "R", "S", "T"]):
@@ -178,6 +179,7 @@ def get_PQRST(template, template_ts):
 
     # add energy of the signal 
     output["energy"] = np.sum(template**2)
+
 
     if False:
         plt.figure()
@@ -237,10 +239,12 @@ def get_features(sample):
         if len(heart_rate) == 0:
             heart_rate_proxy = [60/x for x in np.diff([ts[rpeak] for rpeak in rpeaks])]
             output["heartrate_median"] = np.median(heart_rate_proxy)
-            output["heartrate_MAD"]= np.median(np.abs((heart_rate_proxy - output["heartrate_median"])))    
+            output["heartrate_MAD"]= np.median(np.abs((heart_rate_proxy - output["heartrate_median"])))
+            output["heartrate_median"] = np.mean(heart_rate_proxy)
+            output["heartrate_MAD"]= np.std(heart_rate_proxy)     
         else:  
-            output["heartrate_median"] = np.median(heart_rate)
-            output["heartrate_MAD"]= np.median(np.abs((heart_rate - output["heartrate_median"])))  
+            output["heartrate_median"] = np.mean(heart_rate)
+            output["heartrate_MAD"]= np.std(heart_rate)
 
     if False:
         print("\nP: ", output["P_time_MAD"])
@@ -317,8 +321,8 @@ def data_preprocessing():
 
     # TODO: deal with class imbalance: either by resampling or using an SVM with class_weights = "balanced"
 
-    np.savetxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy.csv", features_train_scaled, delimiter=",")
-    np.savetxt("./AdvancedML//task2/data/features_test_indTemp_MMScaler_meanstd_signalratios_energy.csv", features_test_scaled, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy_nofft.csv", features_train_scaled, delimiter=",")
+    np.savetxt("./AdvancedML//task2/data/features_test_indTemp_MMScaler_meanstd_signalratios_energy_nofft.csv", features_test_scaled, delimiter=",")
 
     return features_train_scaled, features_test_scaled, y_train
 
@@ -343,10 +347,12 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
 
     for model in models:
         print("==========================================================") 
-        print("\nTRAINING THE FOLLOWING KERNEL", str(model), "\n")
+        print("\nTRAINING THE FOLLOWING MODEL", str(model), "\n")
         t0 = time.time()
-        svc = SVC(C=model[0], kernel=model[3], degree=model[4], gamma=model[1], class_weight=model[2])
-        scores = cross_val_score(svc, X_train, y_train, cv=10, scoring="f1_micro", error_score="raise")
+        #svc = SVC(C=model[0], kernel=model[3], degree=model[4], gamma=model[1], class_weight=model[2])
+        #scores = cross_val_score(svc, X_train, y_train, cv=10, scoring="f1_micro", error_score="raise")
+        gbc = GradientBoostingClassifier(random_state=42, n_estimators=model[0], max_depth=model[1], learning_rate=model[2], max_features=model[3], min_samples_leaf=model[4])
+        scores = cross_val_score(gbc, X_train, y_train, cv=10, scoring="f1_micro", error_score="raise")
         score = np.mean(scores)
         cv_scores.loc[str(model), "CV_score"] = score
         print("\nMODEL GOT THE FOLLOWING SCORE", str(score), "\n")
@@ -361,11 +367,11 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
     print(cv_scores)
 
     print("\nTHE BEST MODEL IS ", str(best_model)," with a score of " + str(best_score)+". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
-    svc = SVC(C=best_model[0], kernel=best_model[3], degree=best_model[4], gamma=best_model[1], class_weight=best_model[2])
+    gbc = GradientBoostingClassifier(random_state=42, n_estimators=best_model[0], max_depth=best_model[1], learning_rate=best_model[2], max_features=best_model[3], min_samples_leaf=best_model[4])
 
     # add average age estimate of prior to obtain final posterior estimate
-    svc.fit(X_train, y_train)
-    y_pred = svc.predict(X_test)
+    gbc.fit(X_train, y_train)
+    y_pred = gbc.predict(X_test)
     
     return y_pred
 
@@ -428,25 +434,26 @@ if __name__ == "__main__":
         print("\nLOADING TRAINING DATA\n")
         y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
         y_train = y_train.drop('id', axis=1).to_numpy().flatten()
-        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy.csv", delimiter=",")
+        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy_fft.csv", delimiter=",")
         print("\nLOADING TEST DATA\n")
-        X_test = np.loadtxt("./AdvancedML//task2/data/features_test_indTemp_MMScaler_meanstd_signalratios_energy.csv", delimiter=",") 
+        X_test = np.loadtxt("./AdvancedML//task2/data/features_train_indTemp_MMScaler_meanstd_signalratios_energy_fft.csv", delimiter=",") 
 
 
     # list of kernels to be validated for the Gaussian process
-    #current best: [250, 0.12, None, 'rbf', 1] with 0.72835and features_train_30pca_indTemp_MMScaler_meanstd_signalratios
+    #current best: [500, 9, 0.1, None, 9]  with a score of 0.77310611851761 and features_test_indTemp_MMScaler_meanstd_signalratios_energy_nofft
     models = []
-    for C in [110, 130, 150]:
-        for gamma in [0.12, 0.14, 0.16, 0.18]:
-            for class_weight in [None]:
-                for kernel in ["rbf"]:               
-                    model = []
-                    model.append(C)
-                    model.append(gamma)
-                    model.append(class_weight)
-                    model.append(kernel)
-                    model.append(1)
-                    models.append(model)
+    for n_estimators in [500]:
+        for max_depth in [9]:
+            for learning_rate in [0.1]:
+                    for max_features in [None]:
+                        for min_samples_leaf in [9]:               
+                            model = []
+                            model.append(n_estimators)
+                            model.append(max_depth)
+                            model.append(learning_rate)
+                            model.append(max_features)
+                            model.append(min_samples_leaf)
+                            models.append(model)
 
     print("\nNUMBER OF MODELS TO BE TRAINED: ", len(models), "\n") 
     
