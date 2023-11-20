@@ -1,6 +1,7 @@
 """
-The following script solves task 2 of the Advanced Machine Learning 2023 course at ETH Zurich.
-TODO: more detailed explanation
+The following script solves task 2 of the Advanced Machine Learning 2023 course at ETH Zurich. The problem is a classification task:
+Given raw heart ECG data the illness of the patient needs to predicted. The main problem of the task is the feature extraction from the raw
+ECGs, see https://en.wikipedia.org/wiki/QRS_complex.
 """
 
 import numpy as np
@@ -13,69 +14,29 @@ import matplotlib.pyplot as plt
 import time
 from scipy import stats
 
-def get_wave_duration(template, time, peak_index):
+
+def find_extremum(template, time, index, side, ext, a=-10000, b=10000):
     """
-    TODO: write docstring
+    
+    Given an ECG signal as defined by template and time finds the minimum or maximum value of an array to the left or 
+    right of a certain index and returns the index, the value of the template and time at that index. The search for the extremum
+    can be constrained in the time domain using the parameters a and b.
 
-    Parameters
+    Parameters:
+    template: 1d np array containing a PQRST complex from an ECG
+    time: 1d np array containing the measurement times for the values given in template
+    index: int, index relative to which the search for the extremum will take place
+    side: "left" or "right", the side relative to "index" where the extremum will be searched for
+    ext: "min" or "max", specifies whether to search for a minimum or maximum
+    a: float, constrains the time of the extremum to be bigger than a
+    b: float, constrains the time of the extremum to be smaller than b
     ----------
-
-    Returns
-    ----------
-   
+    Returns:
+    out_index: int, index of the extremum
+    out_signal: float, signal of the extremum
+    out_time: float, time of the extremum
     """
-    template_ = template
-    root_candidates = [np.sign(template_[i] * template_[i+1]) for i in range(len(template_)-1)]
 
-    enumerated_roots = list(filter(lambda x: x[1] == -1, enumerate(root_candidates)))
-    root_indices = list(map(lambda x: x[0], enumerated_roots))
-
-    right_success = True
-    left_success = True
-
-    try:
-        right_root_index = min(filter(lambda x: x > peak_index, root_indices))
-    except ValueError:
-        right_success = False
-    try:
-        left_root_index = max(filter(lambda x: x < peak_index, root_indices))
-    except ValueError:
-        left_success = False
-    
-    if right_success and left_success:
-        #linear interpolation between the two indices that define the root
-        right_time = time[right_root_index + 1] - template[right_root_index + 1] * (time[right_root_index+1] - time[right_root_index])/(template[right_root_index+1]-template[right_root_index])
-        left_time = time[left_root_index + 1] - template[left_root_index + 1] * (time[left_root_index+1] - time[left_root_index])/(template[left_root_index+1] - template[left_root_index])
-    
-    elif right_success and not left_success:
-       #linear interpolation between the two indices that define the root
-       right_time = time[right_root_index + 1] - template[right_root_index + 1] * (time[right_root_index+1] - time[right_root_index])/(template[right_root_index+1]-template[right_root_index])
-       left_time = time[peak_index] - abs(right_time- time[peak_index])
-    
-    elif not right_success and  left_success:
-       #linear interpolation between the two indices that define the root
-       left_time = time[left_root_index + 1] - template[left_root_index + 1] * (time[left_root_index+1] - time[left_root_index])/(template[left_root_index+1] - template[left_root_index])
-       right_time = time[peak_index] + abs(left_time - time[peak_index])
-    
-    else: 
-        raise(ValueError)
-
-    duration = right_time - left_time
-
-    return right_time, left_time, duration
-
-
-def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
-    """
-    TODO: write docstring
-    Finds the minimum or maximum value of an array to the left or right of a certain index and returns the index and the value of template and time at that index
-    Parameters
-    ----------
-
-    Returns
-    ----------
-   
-    """
     if side == "right":
 
         template_ = template[index:]
@@ -109,126 +70,69 @@ def find_extreme(template, time, index, side, ext, a=-10000, b=10000):
         
         else:
             raise ValueError
-    
     else:
         raise ValueError
     
 
-def get_PQRST(template, template_ts):
-    """
-    TODO: write docstring
-    Parameters
-    ----------
-
-    Returns
-    ----------
-   
-    """
-    #if sample_index==4 and template_index==6:
-    #    print("hoi")
-    output = {}
-
-    # find P,Q,R,S,T times and signals, see https://en.wikipedia.org/wiki/QRS_complex
-    # R-peak is the largest signal in a well behaved template
-    output["R_index"], output["R_signal"], output["R_time"] = find_extreme(template, template_ts, 0, "right", "max", a=-0.06, b=0.06 )
-
-    # S-peak is the smallest signal to the right of the R-peak in a well behaved template
-    output["S_index"], output["S_signal"], output["S_time"] = find_extreme(template, template_ts, output["R_index"], "right", "min", a=0, b=0.08)
-
-    # Q-peak is the smallest signal to the left of the R-peak in a well behaved template
-    output["Q_index"], output["Q_signal"], output["Q_time"] = find_extreme(template, template_ts, output["R_index"], "left", "min", a=-0.08, b=0)
-
-    # T-peak is the largest signal to the right of the S-peak in a well behaved template
-    output["T_index"], output["T_signal"], output["T_time"] = find_extreme(template, template_ts, output["S_index"], "right", "max", a=0.19)
-
-    # P-peak is the largest signal to the left of the Q-peak in a well behaved template
-    output["P_index"], output["P_signal"], output["P_time"] = find_extreme(template, template_ts, output["Q_index"], "left", "max", b=-0.08)
-
-    #R_right_time, R_left_time, output["R_duration"] = get_wave_duration(template, template_ts, output["R_index"])
-    #P_right_time, P_left_time, output["P_duration"] = get_wave_duration(template, template_ts, output["P_index"])
-    #Q_right_time, Q_left_time, output["Q_duration"] = get_wave_duration(template, template_ts, output["Q_index"])
-    #S_right_time, S_left_time, output["S_duration"] = get_wave_duration(template, template_ts, output["S_index"])
-    #T_right_time, T_left_time, output["T_duration"] = get_wave_duration(template, template_ts, output["T_index"])
-
-    # fill pairwise wave durations. it is unclear whether for example to go from start/end of P wave to start/end of T wave.
-    # The medical literature has no systematic nomenclature, however all technical medical quantities are used below with their 
-    # name in the literature (see comments). Otherwise, I apply the convention that for example the "PR duration" is the difference
-    # between the start of R and the start of P
-
-    #output["PR-interval"] = Q_left_time - P_right_time #technical medical term, called "PR" even though QP is concerned
-    #output["PR-segment"] = Q_left_time - P_left_time #technical medical term called "PR" even though QP is concerned
-    #output["PR-duration"] = R_left_time - P_left_time
-    #output["PS-duration"] = S_left_time - P_left_time
-    #output["total-duration"] = T_right_time - P_left_time #not a technical term, describes the total extent of the waveform
-    #output["VAT"] = output["R_time"] - Q_left_time  #technical medical term: ventricular activation time
-    #output["QRS-duration"] = S_right_time - Q_left_time #technical medical term
-    #output["QT-duration"] = T_left_time - Q_left_time
-    #output["ST-segment"] = T_left_time - S_right_time #technical medical term
-    ##output["VDT"] = S_right_time - output["R_time"] # not a technical term but defined by me analogous to ventricular activation time: ventricular deactivation time
-    #output["RT-duration"] = T_left_time - R_left_time
-    #output["ST-interval"] = T_right_time - S_right_time #technical medical term
-
-    return output
-    
-
 def get_features(sample):
     """
-    TODO: write docstring
-    Parameters
-    ----------
+    Takes a single ECG sample as input and returns the extracted features. The features extracted are the P, Q, R, S, T signals and times,
+    ratios/differences of these signals and times and standard quantities from signals processing like fourier modes and energy
 
-    Returns
+    Parameters:
+    sample: 1d array, containing the raw ECG data with a sampling rate of 300 HZ
     ----------
-   
+    Returns:
+    output: dictionary, with (key, values) corresponding to feature names and values
+    ----------
     """
 
-    """
-    explanation of ecg outputs:
-    ts: time axis for the outputs "filtered" and "rpeaks"
-    filtered: array containing the denoised ECG signal relative to the time given in "ts"
-    rpeaks: indices in ts and filtered of the rpeaks
-    templates_ts: time axis of the "templates" output
-    templates: each PQRST complex in the input is isolated. each row is one individual heartbeat
-    heartrate_ts: time axis for the output "heart_rate"
-    heart_rate: heart rate of the patient over time
-    here ts, filtered and rpeaks are not used.
-    """
     output = {}
-    sample_wonan = sample[~np.isnan(sample)]
-    sample_nan0 = np.nan_to_num(sample)
-    output["autocorr"] = pd.Series(sample_wonan).autocorr(lag=2)
-    output["avg"] = np.mean(sample_wonan)
-    #output["ptp"] = np.ptp(sample_wonan) #kann der raus?
+    
+    sample = sample[~np.isnan(sample)]
+    
+    output["avg"] = np.mean(sample)
+    output["autocorr2"] = pd.Series(sample).autocorr(lag=2)
+    output["autocorr6"] = pd.Series(sample).autocorr(lag=6)
 
-    f = np.fft.fft(sample_wonan[:2400])
-    modes = np.abs(f).argsort()[-10:]
+    f = np.fft.fft(sample[:2400])
+    sorted_modes = np.abs(f).argsort()
     for i in range(10):
-        output["fft_modes_"+str(i)] = modes[i]
+        output["fft_modes_"+str(i)] = sorted_modes[-i-1]
 
-    ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample_nan0, sampling_rate=300, show = False)
+    # https://biosppy.readthedocs.io/en/stable/biosppy.signals.html#biosppy-signals-ecg
+    ts, filtered, rpeaks, templates_ts, templates, heart_rate_ts, heart_rate = ecg(signal=sample, sampling_rate=300, show = False)
 
     mean_template = np.mean(templates, axis=0)
-    output["energy"] = np.sum(mean_template**2)
-    pqrst_result = get_PQRST(mean_template, templates_ts)
-
-    output["P_index"] = pqrst_result["P_index"]
-    output["Q_index"] = pqrst_result["Q_index"]
-    output["R_index"] = pqrst_result["R_index"]
-    output["S_index"] = pqrst_result["S_index"]
-    output["T_index"] = pqrst_result["T_index"]
-
-    output["PR_time"] = output["R_index"] - output["P_index"]
-    output["QS_time"] = output["S_index"] - output["Q_index"]
-    output["ST_time"] = output["T_index"] - output["S_index"]
-    #output["QS_to_T_time"] = output["QS_time"]/(output["T_time"]+1) #kann der raus?
-    #output["QS_to_P_time"] = output["QS_time"]/(output["P_time"]+1) #kann der raus?
 
     output["max"] = np.max(mean_template)
     output["min"] = np.max(mean_template)
     output["mean"] = np.mean(mean_template)
     output["median"] = np.median(mean_template)
+    output["energy"] = np.sum(mean_template**2)
 
-    output["energy"] = pqrst_result["energy"]
+    # R-peak is the largest signal in a well behaved template
+    output["R_index"], output["R_signal"], R_time = find_extremum(mean_template, templates_ts, 0, "right", "max", a=-0.06, b=0.06 )
+    # S-peak is the smallest signal to the right of the R-peak in a well behaved template
+    output["S_index"], output["S_signal"], S_time = find_extremum(mean_template, templates_ts, output["R_index"], "right", "min", a=0, b=0.08)
+    # Q-peak is the smallest signal to the left of the R-peak in a well behaved template
+    output["Q_index"], output["Q_signal"], Q_time = find_extremum(mean_template, templates_ts, output["R_index"], "left", "min", a=-0.08, b=0)
+    # T-peak is the largest signal to the right of the S-peak in a well behaved template
+    output["T_index"], output["T_signal"], T_time = find_extremum(mean_template, templates_ts, output["S_index"], "right", "max", a=0.19)
+    # P-peak is the largest signal to the left of the Q-peak in a well behaved template
+    output["P_index"], output["P_signal"], P_time = find_extremum(mean_template, templates_ts, output["Q_index"], "left", "max", b=-0.08)
+
+    output["PR_duration"] = output["R_index"] - output["P_index"]
+    output["QS_duration"] = output["S_index"] - output["Q_index"]
+    output["ST_duration"] = output["T_index"] - output["S_index"]
+
+    # get ratios and differences of the signal pairs. P and T are avoided as their extraction is very volatile
+    for i, n in enumerate(["Q", "R", "S"]):
+        for j, m in enumerate(["Q", "R", "S"]):
+            if i>=j: 
+                continue
+            output[n + "/" + m + "_signal"] = output[n + "_signal"] / output[m + "_signal"]
+            output[n + "-" + m + "_signal"] = output[n + "_signal"] - output[m + "_signal"]
 
     diff_heart_rate_ts = np.diff(heart_rate_ts)
     output["heart_rate_ts_mean"] = np.mean(diff_heart_rate_ts)
@@ -236,40 +140,29 @@ def get_features(sample):
     output["heart_rate_ts_median"] = np.median(diff_heart_rate_ts)
 
     diff_rpeaks = np.diff(rpeaks)
-    output["peaks_diff_mean"] = np.mean(diff_rpeaks)
-    output["peaks_diff_median"] = np.median(diff_rpeaks)
-    output["peaks_diff_std"] = np.std(diff_rpeaks)
-    output["peaks_diff_mode"] = stats.mode(diff_rpeaks)[0]
+    output["rpeaks_diff_mean"] = np.mean(diff_rpeaks)
+    output["rpeaks_diff_median"] = np.median(diff_rpeaks)
+    output["rpeaks_diff_std"] = np.std(diff_rpeaks)
+    output["rpeaks_diff_mode"] = stats.mode(diff_rpeaks)[0]
 
     output["heart_rate_mean"] = np.mean(heart_rate)
     output["heart_rate_std"] = np.std(heart_rate)
     output["heart_rate_median"] = np.median(heart_rate)
-
-    output["P_signal"] = pqrst_result["P_signal"]
-    output["Q_signal"] = pqrst_result["Q_signal"]
-    output["R_signal"] = pqrst_result["R_signal"]
-    output["S_signal"] = pqrst_result["S_signal"]
-    output["T_signal"] = pqrst_result["T_signal"]
-
-    for i, n in enumerate(["Q", "R", "S"]):
-        for j, m in enumerate(["Q", "R", "S"]):
-            if i>=j: 
-                continue
-            output[n + "/" + m + "_signal"] = pqrst_result[n + "_signal"]/pqrst_result[m + "_signal"]
-            output[n + "-" + m + "_signal"] = pqrst_result[n + "_signal"]-pqrst_result[m + "_signal"]
 
     return output
 
 
 def data_preprocessing():
     """
-    TODO: write docstring
-    Parameters
-    ----------
+    Reads in the raw ECG data and extracts the relevant features.
 
-    Returns
+    Parameters:
+    None
     ----------
-   
+    Returns:
+    features_train: 2d np array containing training features
+    features_test: 2d np array containing test features
+    y_train: 1d np array containing training labels
     """
 
     print("\nLOADING TRAINING DATA\n")
@@ -300,24 +193,25 @@ def data_preprocessing():
     features_train = imp.transform(features_train)
     features_test = imp.transform(features_test)
 
-    np.savetxt("./AdvancedML//task2/data/features_train_g3.csv", features_train, delimiter=",")
-    np.savetxt("./AdvancedML//task2/data/features_test_g3.csv", features_test, delimiter=",")
-
     return features_train, features_test, y_train
 
 
 def modeling_and_prediction(X_train, X_test, y_train, models):
     """
-    TODO: write docstring
-    Parameters
-    ----------
+    Trains the provided Gradient Boosting Classification models on X_train and y_train, cross validates them, chooses the best one
+    and returns the predictions based on X_test.
 
+    Parameters:
+    X_train: 2d np array containing training features
+    X_test: 2d np array containing test features
+    y_train: 1d np array containing training labels
+    models: list of dictionaries containing Gradient Boosting Classification model specifications
+    ----------
     Returns
-    ----------
-
+    y_pred: 1d np arary containing the predictions w.r.t. X_test by the best model
     """
 
-    # initialize cv_score for each kernel, best kernel and its score
+    # initialize cv_score for each model, best model and its score
     best_model = None
     best_score = -100000
 
@@ -330,13 +224,12 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
                                          min_samples_split=int(model["min_samples_split"]), min_samples_leaf=int(model["min_samples_leaf"]), random_state=42)
         scores = cross_val_score(gbc, X_train, y_train, cv=10, scoring="f1_micro", error_score="raise")
         score = np.mean(scores)
-        print("\nMODEL GOT THE FOLLOWING SCORE", str(score), "\n")
-        t1 = time.time() 
-        print("\nELAPSED MINUTES:", (t1-t0)/60, "\n")
-
         if score > best_score:
             best_model = model
             best_score = score
+        print("\nMODEL GOT THE FOLLOWING SCORE", str(score), "\n")
+        t1 = time.time() 
+        print("\nELAPSED MINUTES:", (t1-t0)/60, "\n")
 
     print("\nTHE BEST MODEL IS ", str(best_model)," with a score of " + str(best_score)+". IT WILL BE USED TO GENERATE THE FINAL RESULT\n")
     gbc = GradientBoostingClassifier(learning_rate=best_model["learning_rate"], n_estimators=int(best_model["n_estimators"]), max_depth=int(best_model["max_depth"]), 
@@ -349,22 +242,12 @@ def modeling_and_prediction(X_train, X_test, y_train, models):
 
 if __name__ == "__main__":
 
-    preprocessing = True
+    t0 = time.time()
+    X_train, X_test, y_train = data_preprocessing()
+    t1 = time.time() 
+    print("\nELAPSED MINUTES:", (t1 - t0) / 60, "\n")
 
-    if preprocessing:
-        t0 = time.time()
-        X_train, X_test, y_train = data_preprocessing()
-        t1 = time.time() 
-        print("\nELAPSED MINUTES:", (t1-t0)/60, "\n")
-    else:
-        print("\nLOADING TRAINING DATA\n")
-        y_train = pd.read_csv("./AdvancedML/task2/data/y_train.csv")
-        y_train = y_train.drop('id', axis=1).to_numpy().flatten()
-        X_train = np.loadtxt("./AdvancedML//task2/data/features_train_g3.csv", delimiter=",")
-        print("\nLOADING TEST DATA\n")
-        X_test = np.loadtxt("./AdvancedML//task2/data/features_train_g3.csv", delimiter=",") 
-
-
+    # define a dictionary containing a range of Gradient Boosting parameters to be cross validated
     models = []
     for n_estimators in [250]:
         for max_depth in [7]:
